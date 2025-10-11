@@ -1,0 +1,240 @@
+const pool = require('../config/database');
+
+class JedCustomerRequest {
+  
+  static async create(data) {
+    const {
+      accountNumber,
+      custNames,
+      gsm,
+      email,
+      address,
+      meterRecommended,
+      discoCode,
+      requestRef,
+      region,
+      rrr,
+      amount,
+      orderId,
+      appId
+    } = data;
+
+    const query = `
+      INSERT INTO jed_customer_request (
+        account_number, cust_names, gsm, email, address, meter_recommended,
+        disco_code, request_ref, region, rrr, amount, order_id, app_id, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'INITIATED')
+      RETURNING *
+    `;
+
+    const values = [
+      accountNumber, custNames, gsm, email, address, meterRecommended,
+      discoCode, requestRef, region, rrr, amount, orderId, appId
+    ];
+
+    const result = await pool.query(query, values);
+    return this.formatRequest(result.rows[0]);
+  }
+
+  static async findByAccountNumber(accountNumber) {
+    const query = `
+      SELECT * FROM jed_customer_request
+      WHERE account_number = $1
+    `;
+
+    const result = await pool.query(query, [accountNumber]);
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.formatRequest(result.rows[0]);
+  }
+
+  static async findByRRR(rrr) {
+    const query = `
+      SELECT * FROM jed_customer_request
+      WHERE rrr = $1
+    `;
+
+    const result = await pool.query(query, [rrr]);
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.formatRequest(result.rows[0]);
+  }
+
+  static async logWebhookPayment(accountNumber, webhookData) {
+    const query = `
+      UPDATE jed_customer_request
+      SET 
+        webhook_data = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE account_number = $2
+    `;
+
+    await pool.query(query, [JSON.stringify(webhookData), accountNumber]);
+  }
+
+  static async updatePaymentDetails(accountNumber, paymentData, source = 'MANUAL') {
+    const {
+      applicantName,
+      acctName,
+      address,
+      phone1,
+      region,
+      phone2,
+      area,
+      feeder,
+      dtName,
+      dtCode,
+      meterType,
+      pendingSince
+    } = paymentData;
+
+    const query = `
+      UPDATE jed_customer_request
+      SET 
+        applicant_name = $1,
+        cust_names = $2,
+        address = $3,
+        phone1 = $4,
+        region = $5,
+        phone2 = $6,
+        area = $7,
+        feeder = $8,
+        dt_name = $9,
+        dt_code = $10,
+        meter_type = $11,
+        pending_since = $12,
+        date_paid = CURRENT_TIMESTAMP,
+        status = 'PAID',
+        payment_source = $13,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE account_number = $14
+      RETURNING *
+    `;
+
+    const values = [
+      applicantName, acctName, address, phone1, region, phone2,
+      area, feeder, dtName, dtCode, meterType, pendingSince, source, accountNumber
+    ];
+
+    const result = await pool.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.formatRequest(result.rows[0]);
+  }
+
+  static async updateInstallationDetails(accountNumber, installationData) {
+    const { sealNo, meterNo } = installationData;
+
+    const query = `
+      UPDATE jed_customer_request
+      SET 
+        seal_no = $1,
+        meter_no = $2,
+        date_completed = CURRENT_TIMESTAMP,
+        status = 'COMPLETED',
+        updated_at = CURRENT_TIMESTAMP
+      WHERE account_number = $3
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [sealNo, meterNo, accountNumber]);
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.formatRequest(result.rows[0]);
+  }
+
+  static async findAll(options = {}) {
+    const { page = 1, limit = 10, status } = options;
+    const offset = (page - 1) * limit;
+
+    let query = 'SELECT * FROM jed_customer_request WHERE 1=1';
+    const queryParams = [];
+    let paramCount = 0;
+
+    if (status) {
+      paramCount++;
+      query += ` AND status = $${paramCount}`;
+      queryParams.push(status);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+    queryParams.push(limit, offset);
+
+    const result = await pool.query(query, queryParams);
+
+    // Get total count
+    let countQuery = 'SELECT COUNT(*) FROM jed_customer_request WHERE 1=1';
+    const countParams = [];
+
+    if (status) {
+      countQuery += ' AND status = $1';
+      countParams.push(status);
+    }
+
+    const countResult = await pool.query(countQuery, countParams);
+    const totalCount = parseInt(countResult.rows[0].count);
+
+    return {
+      requests: result.rows.map(row => this.formatRequest(row)),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasNext: page < Math.ceil(totalCount / limit),
+        hasPrev: page > 1
+      }
+    };
+  }
+
+  static formatRequest(dbRow) {
+    if (!dbRow) return null;
+
+    return {
+      id: dbRow.id,
+      accountNumber: dbRow.account_number,
+      custNames: dbRow.cust_names,
+      gsm: dbRow.gsm,
+      email: dbRow.email,
+      address: dbRow.address,
+      meterRecommended: dbRow.meter_recommended,
+      discoCode: dbRow.disco_code,
+      requestRef: dbRow.request_ref,
+      region: dbRow.region,
+      rrr: dbRow.rrr,
+      amount: dbRow.amount,
+      orderId: dbRow.order_id,
+      appId: dbRow.app_id,
+      dateRequested: dbRow.date_requested,
+      status: dbRow.status,
+      applicantName: dbRow.applicant_name,
+      phone1: dbRow.phone1,
+      phone2: dbRow.phone2,
+      area: dbRow.area,
+      feeder: dbRow.feeder,
+      dtName: dbRow.dt_name,
+      dtCode: dbRow.dt_code,
+      meterType: dbRow.meter_type,
+      pendingSince: dbRow.pending_since,
+      sealNo: dbRow.seal_no,
+      meterNo: dbRow.meter_no,
+      datePaid: dbRow.date_paid,
+      dateCompleted: dbRow.date_completed,
+      createdAt: dbRow.created_at,
+      updatedAt: dbRow.updated_at
+    };
+  }
+}
+
+module.exports = JedCustomerRequest;

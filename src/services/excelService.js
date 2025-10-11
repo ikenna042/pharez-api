@@ -1,0 +1,215 @@
+const XLSX = require('xlsx');
+
+class ExcelService {
+  
+  // Parse meter upload Excel file
+  static parseMeterExcel(buffer) {
+    try {
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Convert to JSON
+      const data = XLSX.utils.sheet_to_json(worksheet);
+      
+      if (data.length === 0) {
+        throw new Error('Excel file is empty');
+      }
+
+      // Map Excel columns to database fields
+      const meters = data.map((row, index) => {
+        // Validate required fields
+        if (!row['METER NUMBER']) {
+          throw new Error(`Row ${index + 2}: METER NUMBER is required`);
+        }
+
+        // Normalize phase type
+        let phaseType = row['PHASE TYPE'] || row['PHASE_TYPE'];
+        if (phaseType) {
+          phaseType = phaseType.toString().toUpperCase().trim();
+          if (!['SINGLE PHASE', 'THREE PHASE'].includes(phaseType)) {
+            throw new Error(`Row ${index + 2}: Invalid PHASE TYPE. Must be 'SINGLE PHASE' or 'THREE PHASE'`);
+          }
+        }
+
+        return {
+          meterNumber: row['METER NUMBER']?.toString().trim(),
+          simNumber: row['SIM NUMBER']?.toString().trim() || null,
+          manufacturedDate: row['MANUFACTURED DATE']?.toString().trim() || null,
+          meterMake: row['METER MAKE']?.toString().trim() || null,
+          model: row['MODEL']?.toString().trim() || null,
+          phaseType: phaseType || null,
+          sgcNumber: row['SGC NUMBER']?.toString().trim() || null
+        };
+      });
+
+      return meters;
+    } catch (error) {
+      if (error.message.includes('Row')) {
+        throw error;
+      }
+      throw new Error(`Failed to parse Excel file: ${error.message}`);
+    }
+  }
+
+  // Generate meter Excel template
+  static generateMeterTemplate() {
+    const templateData = [
+      {
+        'METER NUMBER': '0239330009840',
+        'SIM NUMBER': '0613570771',
+        'MANUFACTURED DATE': '2024',
+        'METER MAKE': 'ME METERING',
+        'MODEL': 'MEM330',
+        'PHASE TYPE': 'THREE PHASE',
+        'SGC NUMBER': '999907'
+      },
+      {
+        'METER NUMBER': '0239330000518',
+        'SIM NUMBER': '0613570772',
+        'MANUFACTURED DATE': '2024',
+        'METER MAKE': 'ME METERING',
+        'MODEL': 'MEM330',
+        'PHASE TYPE': 'THREE PHASE',
+        'SGC NUMBER': '999907'
+      },
+      {
+        'METER NUMBER': '0239330009824',
+        'SIM NUMBER': '0613570773',
+        'MANUFACTURED DATE': '2024',
+        'METER MAKE': 'ME METERING',
+        'MODEL': 'MEM330',
+        'PHASE TYPE': 'SINGLE PHASE',
+        'SGC NUMBER': '999907'
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(templateData);
+    
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 20 }, // METER NUMBER
+      { wch: 15 }, // SIM NUMBER
+      { wch: 20 }, // MANUFACTURED DATE
+      { wch: 20 }, // METER MAKE
+      { wch: 15 }, // MODEL
+      { wch: 15 }, // PHASE TYPE
+      { wch: 15 }  // SGC NUMBER
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Meters');
+
+    return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  // Export meters to Excel
+  static exportMetersToExcel(meters) {
+    const exportData = meters.map(meter => ({
+      'METER NUMBER': meter.meterNumber,
+      'SIM NUMBER': meter.simNumber || '',
+      'MANUFACTURED DATE': meter.manufacturedDate || '',
+      'METER MAKE': meter.meterMake || '',
+      'MODEL': meter.model || '',
+      'PHASE TYPE': meter.phaseType || '',
+      'SGC NUMBER': meter.sgcNumber || '',
+      'STATUS': meter.status,
+      'UPLOADED AT': meter.uploadedAt ? new Date(meter.uploadedAt).toLocaleString() : '',
+      'INSTALLED AT': meter.installedAt ? new Date(meter.installedAt).toLocaleString() : ''
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 20 }, // METER NUMBER
+      { wch: 15 }, // SIM NUMBER
+      { wch: 20 }, // MANUFACTURED DATE
+      { wch: 20 }, // METER MAKE
+      { wch: 15 }, // MODEL
+      { wch: 15 }, // PHASE TYPE
+      { wch: 15 }, // SGC NUMBER
+      { wch: 12 }, // STATUS
+      { wch: 22 }, // UPLOADED AT
+      { wch: 22 }  // INSTALLED AT
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Meters');
+
+    return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  // Export customer requests to Excel
+  static exportCustomerRequestsToExcel(requests) {
+    const exportData = requests.map(request => ({
+      'ACCOUNT NUMBER': request.accountNumber,
+      'CUSTOMER NAME': request.custNames,
+      'PHONE (GSM)': request.gsm,
+      'EMAIL': request.email,
+      'ADDRESS': request.address,
+      'METER RECOMMENDED': request.meterRecommended,
+      'DISCO CODE': request.discoCode,
+      'REQUEST REF': request.requestRef || '',
+      'REGION': request.region || '',
+      'RRR': request.rrr || '',
+      'AMOUNT': request.amount || '',
+      'ORDER ID': request.orderId || '',
+      'STATUS': request.status,
+      'DATE REQUESTED': request.dateRequested ? new Date(request.dateRequested).toLocaleString() : '',
+      'APPLICANT NAME': request.applicantName || '',
+      'PHONE 1': request.phone1 || '',
+      'PHONE 2': request.phone2 || '',
+      'AREA': request.area || '',
+      'FEEDER': request.feeder || '',
+      'DT NAME': request.dtName || '',
+      'DT CODE': request.dtCode || '',
+      'METER TYPE': request.meterType || '',
+      'SEAL NO': request.sealNo || '',
+      'METER NO': request.meterNo || '',
+      'DATE PAID': request.datePaid ? new Date(request.datePaid).toLocaleString() : '',
+      'DATE COMPLETED': request.dateCompleted ? new Date(request.dateCompleted).toLocaleString() : ''
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    
+    // Set column widths
+    const colWidths = [
+      { wch: 18 }, // ACCOUNT NUMBER
+      { wch: 25 }, // CUSTOMER NAME
+      { wch: 18 }, // PHONE (GSM)
+      { wch: 30 }, // EMAIL
+      { wch: 40 }, // ADDRESS
+      { wch: 20 }, // METER RECOMMENDED
+      { wch: 12 }, // DISCO CODE
+      { wch: 15 }, // REQUEST REF
+      { wch: 15 }, // REGION
+      { wch: 18 }, // RRR
+      { wch: 12 }, // AMOUNT
+      { wch: 18 }, // ORDER ID
+      { wch: 12 }, // STATUS
+      { wch: 22 }, // DATE REQUESTED
+      { wch: 25 }, // APPLICANT NAME
+      { wch: 18 }, // PHONE 1
+      { wch: 18 }, // PHONE 2
+      { wch: 15 }, // AREA
+      { wch: 20 }, // FEEDER
+      { wch: 20 }, // DT NAME
+      { wch: 20 }, // DT CODE
+      { wch: 15 }, // METER TYPE
+      { wch: 15 }, // SEAL NO
+      { wch: 20 }, // METER NO
+      { wch: 22 }, // DATE PAID
+      { wch: 22 }  // DATE COMPLETED
+    ];
+    
+    worksheet['!cols'] = colWidths;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Customer Requests');
+
+    return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  }
+}
+
+module.exports = ExcelService;
