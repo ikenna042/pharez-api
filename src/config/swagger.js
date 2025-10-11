@@ -31,9 +31,17 @@ const options = {
     servers: [
       {
         url: process.env.NODE_ENV === 'production' 
-          ? 'https://api.pharez.com/api/v1' 
+          ? 'https://pharez-api.onrender.com/api/v1' 
           : `http://localhost:${process.env.PORT || 3000}/api/v1`,
         description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
+      }, // https://pharez-api.onrender.com/api/v1/users
+      {
+        url: 'http://localhost:3000/api/v1',
+        description: 'Local development server'
+      },
+      {
+        url: 'https://pharez-api.onrender.com/api/v1',
+        description: 'Production server'
       }
     ],
     components: {
