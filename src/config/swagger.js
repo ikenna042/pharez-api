@@ -9,11 +9,12 @@ const options = {
       version: '1.0.0',
       description: `
         Complete API for user management and authentication system.
-        
+
         ## Authentication
-        Use the login endpoint to get a JWT token, then include it in the Authorization header:
-        \`Authorization: Bearer <your_jwt_token>\`
-        
+        - To use JWT: obtain a token via the login endpoint and include it in the Authorization header:
+          \`Authorization: Bearer <your_jwt_token>\`
+        - To use API keys for external endpoints: click the "Authorize" button in the API docs and provide the API key in the "X-API-Key" input. The key will be sent in the X-API-Key header for requests.
+
         ## User Roles
         - **SUPERADMIN**: Full system access
         - **ADMIN**: Administrative access
@@ -51,6 +52,13 @@ const options = {
           scheme: 'bearer',
           bearerFormat: 'JWT',
           description: 'Enter JWT token obtained from login'
+        }
+        ,
+        ApiKeyAuth: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'X-API-Key',
+          description: 'Provide your API key in the X-API-Key header'
         }
       },
       schemas: {

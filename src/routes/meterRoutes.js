@@ -312,7 +312,6 @@ router.get('/:id', authenticate, authorize('SUPERADMIN', 'ADMIN', 'INSTALLER'), 
  */
 router.get('/meter-number/:meterNumber', authenticate, authorize('SUPERADMIN', 'ADMIN', 'INSTALLER'), meterController.getMeterByMeterNumber);
 
-
 /**
  * @swagger
  * /meters/{meterNumber}:

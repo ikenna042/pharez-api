@@ -1,6 +1,7 @@
 const express = require('express');
 const jedController = require('../controllers/jedController');
 const { validate, validateQuery, schemas } = require('../middleware/validation');
+const { apiKeyAuth } = require('../middleware/apiKeyAuth');
 
 const router = express.Router();
 
@@ -8,7 +9,7 @@ const router = express.Router();
  * @swagger
  * tags:
  *   name: JED Integration
- *   description: External JED meter installation and payment integration (No authentication required)
+ *   description: External JED meter installation and payment integration
  */
 
 /**
@@ -86,6 +87,8 @@ const router = express.Router();
  * @swagger
  * /external/jed/generate-ref:
  *   post:
+ *     security:
+ *       - ApiKeyAuth: []
  *     summary: Generate Remita payment reference for meter installation
  *     tags: [JED Integration]
  *     requestBody:
@@ -210,7 +213,7 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/generate-ref', validate(schemas.generateRef), jedController.generateRef);
+router.post('/generate-ref', apiKeyAuth, validate(schemas.generateRef), jedController.generateRef);
 
 /**
  * @swagger
@@ -309,6 +312,8 @@ router.post('/confirm-payment', validate(schemas.confirmPayment), jedController.
  * @swagger
  * /external/jed/complete-installation:
  *   post:
+ *     security:
+ *       - ApiKeyAuth: []
  *     summary: Complete meter installation and notify JED
  *     tags: [JED Integration]
  *     description: Send installation details to JED after meter has been installed
@@ -386,7 +391,7 @@ router.post('/confirm-payment', validate(schemas.confirmPayment), jedController.
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/complete-installation', validate(schemas.completeInstallation), jedController.completeInstallation);
+router.post('/complete-installation', apiKeyAuth, validate(schemas.completeInstallation), jedController.completeInstallation);
 
 /**
  * @swagger

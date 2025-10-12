@@ -32,14 +32,20 @@ app.get('/health', (req, res) => {
 });
 
 // Swagger Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+const swaggerUiOptions = {
   explorer: true,
   customCss: `
     .swagger-ui .topbar { display: none }
     .swagger-ui .info .title { color: #1976d2; }
   `,
-  customSiteTitle: "PharezAPI Documentation"
-}));
+  customSiteTitle: 'PharezAPI Documentation',
+  // Pass through swaggerOptions to control doc expansion and show security schemes clearly
+  swaggerOptions: {
+    docExpansion: 'none'
+  }
+};
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, swaggerUiOptions));
 
 // API Routes
 app.use('/api/v1', routes);
