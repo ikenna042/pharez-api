@@ -45,7 +45,8 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-const authorize = (...roles) => {
+const authorize = (roles) => {
+  console.log('Authorizing roles:', roles);
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -55,6 +56,8 @@ const authorize = (...roles) => {
     }
 
     if (!roles.includes(req.user.role)) {
+      console.log('User role is not authorized:', req.user.role);
+      console.log('Required roles are:', roles);
       return res.status(403).json({
         success: false,
         message: 'Insufficient permissions'

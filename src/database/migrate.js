@@ -95,6 +95,39 @@ const createMetersTable = `
   );
 `;
 
+const createApiKeysTable = `
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id SERIAL PRIMARY KEY,
+    key_name VARCHAR(100) NOT NULL,
+    api_key VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    permissions JSONB DEFAULT '[]',
+    is_active BOOLEAN DEFAULT true,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+const createApiKeyLogsTable = `
+  CREATE TABLE IF NOT EXISTS api_key_logs (
+    id SERIAL PRIMARY KEY,
+    api_key_id INTEGER REFERENCES api_keys(id) ON DELETE CASCADE,
+    endpoint VARCHAR(255) NOT NULL,
+    method VARCHAR(10) NOT NULL,
+    ip_address VARCHAR(50),
+    user_agent TEXT,
+    status_code INTEGER,
+    response_time INTEGER,
+    request_body JSONB,
+    response_body JSONB,
+    error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
 const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -110,6 +143,10 @@ const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_jed_date_requested ON jed_customer_request(date_requested);
   CREATE INDEX IF NOT EXISTS idx_meters_meter_number ON meters(meter_number);
   CREATE INDEX IF NOT EXISTS idx_meters_status ON meters(status);
+  CREATE INDEX IF NOT EXISTS idx_api_keys_api_key ON api_keys(api_key);
+  CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
+  CREATE INDEX IF NOT EXISTS idx_api_key_logs_api_key_id ON api_key_logs(api_key_id);
+  CREATE INDEX IF NOT EXISTS idx_api_key_logs_created_at ON api_key_logs(created_at);
 `;
 
 const createUpdateTrigger = `
@@ -141,6 +178,13 @@ const createUpdateTrigger = `
     BEFORE UPDATE ON meters
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+  DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
+  
+  CREATE TRIGGER update_api_keys_updated_at
+      BEFORE UPDATE ON api_keys
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
 `;
 
 
@@ -168,6 +212,14 @@ const runMigration = async () => {
     // Create meters table
     await client.query(createMetersTable);
     console.log('✅ Meters table created');
+
+    // Create API keys table
+    await client.query(createApiKeysTable);
+    console.log('✅ API Keys table created');
+
+    // Create API key logs table
+    await client.query(createApiKeyLogsTable);
+    console.log('✅ API Key Logs table created');
     
     // Create indexes (including new tables)
     await client.query(createIndexes);

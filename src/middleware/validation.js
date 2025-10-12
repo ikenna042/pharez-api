@@ -132,6 +132,22 @@ const validationSchemas = {
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(10),
     status: Joi.string().valid('INITIATED', 'PAID', 'COMPLETED').optional()
+  }),
+
+  getListQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    isActive: Joi.boolean().optional()
+  }),
+
+  // API Key management
+  createApiKey: Joi.object({
+    keyName: Joi.string().min(3).max(100).required().trim()
+      .messages({ 'string.empty': 'Key name is required', 'string.min': 'Key name must be at least 3 characters' }),
+    description: Joi.string().max(500).optional().allow('').trim(),
+    // permissions: Joi.array().items(Joi.string().max(100)).optional(),
+    // expiresAt: Joi.date().iso().optional()
+    //   .messages({ 'date.format': 'expiresAt must be a valid ISO date string' })
   })
 };
 

@@ -3,6 +3,7 @@ const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
 const verificationRoutes = require('./verificationRoutes');
 const jedRoutes = require('./jedRoutes');
+const apiKeyRoutes = require('./ApiKeyRoutes');
 const meterRoutes = require('./meterRoutes');
 const webhookRoutes = require('./webhookRoutes');
 
@@ -19,6 +20,7 @@ router.get('/', (req, res) => {
       verification: '/verification',
       meters: '/meters',
       webhooks: '/webhooks',
+      apiKeys: '/apikeys',
       external: {
         jed: '/external/jed'
       }
@@ -34,5 +36,6 @@ router.use('/verification', verificationRoutes);
 router.use('/meters', meterRoutes);
 router.use('/webhooks', webhookRoutes);
 router.use('/external/jed', jedRoutes);
+router.use('/apikeys', apiKeyRoutes);
 
 module.exports = router;
