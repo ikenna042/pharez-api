@@ -16,30 +16,57 @@ class ExcelService {
         throw new Error('Excel file is empty');
       }
 
-      // Map Excel columns to database fields
+      // Map Excel columns to database fields using normalized header keys (robust to variants)
       const meters = data.map((row, index) => {
-        // Validate required fields
-        if (!row['METER NUMBER']) {
+        // Build normalized row: keys uppercased and stripped of non-alphanumeric
+        const normalized = {};
+        for (const originalKey of Object.keys(row)) {
+          if (!originalKey) continue;
+          const normKey = originalKey.toString().toUpperCase().replace(/[^A-Z0-9]/g, '');
+          normalized[normKey] = row[originalKey];
+        }
+
+        // Required: METER NUMBER
+        const meterNumberRaw = normalized['METERNUMBER'] ?? normalized['METERNUMBER'];
+        if (!meterNumberRaw) {
           throw new Error(`Row ${index + 2}: METER NUMBER is required`);
         }
 
-        // Normalize phase type
-        let phaseType = row['PHASE TYPE'] || row['PHASE_TYPE'];
-        if (phaseType) {
-          phaseType = phaseType.toString().toUpperCase().trim();
-          if (!['SINGLE PHASE', 'THREE PHASE'].includes(phaseType)) {
+        // Phase type normalization
+        let phaseTypeRaw = normalized['PHASETYPE'] ?? normalized['PHASE_TYPE'];
+        let phaseType = null;
+        if (phaseTypeRaw) {
+          phaseType = phaseTypeRaw.toString().toUpperCase().trim();
+          if (!['SINGLEPHASE', 'THREEPHASE', 'SINGLE PHASE', 'THREE PHASE'].includes(phaseType.replace(/\s+/g, ''))) {
+            // Allow both spaced and non-spaced variants
             throw new Error(`Row ${index + 2}: Invalid PHASE TYPE. Must be 'SINGLE PHASE' or 'THREE PHASE'`);
           }
+          // Normalize to DB values
+          if (phaseType.includes('SINGLE')) phaseType = 'SINGLE PHASE';
+          if (phaseType.includes('THREE')) phaseType = 'THREE PHASE';
         }
 
+        // SGC detection: prefer explicit keys, otherwise find any normalized key containing 'SGC'
+        let sgcCell = normalized['SGCNUMBER'] ?? normalized['SGCNO'] ?? normalized['SGC'] ?? null;
+        if (!sgcCell) {
+          const sgcKey = Object.keys(normalized).find(k => k.includes('SGC'));
+          if (sgcKey) sgcCell = normalized[sgcKey];
+        }
+
+        // Fallbacks for other fields using substring matching
+        const simCell = normalized['SIMNUMBER'] ?? Object.keys(normalized).find(k => k.includes('SIM')) ? (normalized[Object.keys(normalized).find(k => k.includes('SIM'))]) : null;
+        const manuCell = normalized['MANUFACTUREDDATE'] ?? Object.keys(normalized).find(k => k.includes('MANUFACTUR')) ? (normalized[Object.keys(normalized).find(k => k.includes('MANUFACTUR'))]) : null;
+        const makeCell = normalized['METERMAKE'] ?? Object.keys(normalized).find(k => k.includes('METERMAKE') || k === 'MAKE') ? (normalized[Object.keys(normalized).find(k => k.includes('METERMAKE') || k === 'MAKE')]) : null;
+        const modelCell = normalized['MODEL'] ?? Object.keys(normalized).find(k => k.includes('MODEL')) ? (normalized[Object.keys(normalized).find(k => k.includes('MODEL'))]) : null;
+
         return {
-          meterNumber: row['METER NUMBER']?.toString().trim(),
-          simNumber: row['SIM NUMBER']?.toString().trim() || null,
-          manufacturedDate: row['MANUFACTURED DATE']?.toString().trim() || null,
-          meterMake: row['METER MAKE']?.toString().trim() || null,
-          model: row['MODEL']?.toString().trim() || null,
+          meterNumber: meterNumberRaw?.toString().trim(),
+          simNumber: simCell ? simCell.toString().trim() : null,
+          manufacturedDate: manuCell ? manuCell.toString().trim() : null,
+          meterMake: makeCell ? makeCell.toString().trim() : null,
+          model: modelCell ? modelCell.toString().trim() : null,
           phaseType: phaseType || null,
-          sgcNumber: row['SGC NUMBER']?.toString().trim() || null
+          sgcNumber: sgcCell?.toString().trim() || null
         };
       });
 
