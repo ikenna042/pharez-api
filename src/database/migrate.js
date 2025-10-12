@@ -108,7 +108,7 @@ const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_jed_status ON jed_customer_request(status);
   CREATE INDEX IF NOT EXISTS idx_jed_rrr ON jed_customer_request(rrr);
   CREATE INDEX IF NOT EXISTS idx_jed_date_requested ON jed_customer_request(date_requested);
-  CREATE INDEX IF NOT EXISTS idx_meters_meter_no ON meters(meter_no);
+  CREATE INDEX IF NOT EXISTS idx_meters_meter_number ON meters(meter_number);
   CREATE INDEX IF NOT EXISTS idx_meters_status ON meters(status);
 `;
 
