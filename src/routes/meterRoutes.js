@@ -290,6 +290,31 @@ router.get('/:id', authenticate, authorize('SUPERADMIN', 'ADMIN', 'INSTALLER'), 
 
 /**
  * @swagger
+ * /meters/meter-number/{meterNumber}:
+ *   get:
+ *     summary: Get meter by meter number
+ *     tags: [Meters]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: meterNumber
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Meter details
+ *       404:
+ *         description: Meter not found
+ *       401:
+ *         description: Authentication required
+ */
+router.get('/meter-number/:meterNumber', authenticate, authorize('SUPERADMIN', 'ADMIN', 'INSTALLER'), meterController.getMeterByMeterNumber);
+
+
+/**
+ * @swagger
  * /meters/{meterNumber}:
  *   delete:
  *     summary: Delete meter by meter number
