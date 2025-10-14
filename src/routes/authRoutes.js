@@ -100,17 +100,17 @@ router.post('/register', validate(schemas.createUser), authController.register);
  *               summary: Login as Superadmin
  *               value:
  *                 phone: "08012345678"
- *                 password: "SuperAdmin123!"
+ *                 password: "Pass123!"
  *             admin:
  *               summary: Login as Admin
  *               value:
  *                 phone: "08023456789"
- *                 password: "Admin123!"
+ *                 password: "Pass123!"
  *             installer:
  *               summary: Login as Installer
  *               value:
  *                 phone: "08034567890"
- *                 password: "Installer123!"
+ *                 password: "Pass123!"
  *     responses:
  *       200:
  *         description: Login successful

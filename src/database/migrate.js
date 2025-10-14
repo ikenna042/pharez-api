@@ -69,6 +69,8 @@ const createJedCustomerRequestTable = `
     date_paid TIMESTAMP WITH TIME ZONE,
     date_completed TIMESTAMP WITH TIME ZONE,
     webhook_data JSONB,
+    vendor_id VARCHAR(100),
+    vendor_name VARCHAR(255),
     payment_source VARCHAR(20) DEFAULT 'MANUAL' CHECK (payment_source IN ('MANUAL', 'WEBHOOK')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

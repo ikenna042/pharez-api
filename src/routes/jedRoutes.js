@@ -2,6 +2,7 @@ const express = require('express');
 const jedController = require('../controllers/jedController');
 const { validate, validateQuery, schemas } = require('../middleware/validation');
 const { apiKeyAuth } = require('../middleware/apiKeyAuth');
+const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -313,7 +314,7 @@ router.post('/confirm-payment', validate(schemas.confirmPayment), jedController.
  * /external/jed/complete-installation:
  *   post:
  *     security:
- *       - ApiKeyAuth: []
+ *       - bearerAuth: []
  *     summary: Complete meter installation and notify JED
  *     tags: [JED Integration]
  *     description: Send installation details to JED after meter has been installed
@@ -391,7 +392,7 @@ router.post('/confirm-payment', validate(schemas.confirmPayment), jedController.
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/complete-installation', apiKeyAuth, validate(schemas.completeInstallation), jedController.completeInstallation);
+router.post('/complete-installation', validate(schemas.completeInstallation), jedController.completeInstallation);
 
 /**
  * @swagger
