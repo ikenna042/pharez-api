@@ -179,6 +179,8 @@ const confirmPayment = asyncHandler(async (req, res) => {
 // Complete installation: verify meter, check status, send installation details to JED and update DB
 const completeInstallation = asyncHandler(async (req, res) => {
   const { sealNo, meterNo, accountNumber } = req.body;
+  // get logged in user info from req.user
+  const user = req.user;
 
   // Find the customer request
   const customerRequest = await JedCustomerRequest.findByAccountNumber(accountNumber);
@@ -258,7 +260,7 @@ const completeInstallation = asyncHandler(async (req, res) => {
 
   // Update DB: mark meter installed and update request
   const updatedMeter = await Meter.updateStatus(meterNo, 'INSTALLED');
-  const updatedRequest = await JedCustomerRequest.updateInstallationDetails(accountNumber, { sealNo, meterNo });
+  const updatedRequest = await JedCustomerRequest.updateInstallationDetails(accountNumber, user, { sealNo, meterNo });
 
   return res.json({
     success: true,

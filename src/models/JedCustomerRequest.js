@@ -131,9 +131,12 @@ class JedCustomerRequest {
     return this.formatRequest(result.rows[0]);
   }
 
-  static async updateInstallationDetails(accountNumber, installationData) {
+  static async updateInstallationDetails(accountNumber, user, installationData) {
     const { sealNo, meterNo } = installationData;
-
+    // update vendor_id and vendor_name based on user info
+    console.log('User info for installation update:', user);
+    const vendorId = user.id;
+    const vendorName = user.name || user.email || 'Unknown';
     const query = `
       UPDATE jed_customer_request
       SET 
@@ -141,13 +144,15 @@ class JedCustomerRequest {
         meter_no = $2,
         date_completed = CURRENT_TIMESTAMP,
         status = 'COMPLETED',
+        vendor_id = $3,
+        vendor_name = $4,
         updated_at = CURRENT_TIMESTAMP
-      WHERE account_number = $3
+      WHERE account_number = $5
       RETURNING *
     `;
 
-    const result = await pool.query(query, [sealNo, meterNo, accountNumber]);
-    
+    const result = await pool.query(query, [sealNo, meterNo, vendorId, vendorName, accountNumber]);
+
     if (result.rows.length === 0) {
       return null;
     }
