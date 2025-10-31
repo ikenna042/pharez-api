@@ -392,7 +392,7 @@ router.post('/confirm-payment', validate(schemas.confirmPayment), jedController.
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/complete-installation', validate(schemas.completeInstallation), jedController.completeInstallation);
+router.post('/complete-installation', authenticate, validate(schemas.completeInstallation), jedController.completeInstallation);
 
 /**
  * @swagger

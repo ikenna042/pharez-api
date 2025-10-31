@@ -109,7 +109,7 @@ router.post('/register', validate(schemas.createUser), authController.register);
  *             installer:
  *               summary: Login as Installer
  *               value:
- *                 phone: "08034567890"
+ *                 phone: "08012345680"
  *                 password: "Pass123!"
  *     responses:
  *       200:
