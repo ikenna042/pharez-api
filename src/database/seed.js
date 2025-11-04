@@ -81,6 +81,29 @@ const seedUsers = async () => {
     console.log('ADMIN - Phone: 08023456789, Password: ' + process.env.DEFAULT_PASSWORD);
     console.log('INSTALLER - Phone: 08034567890, Password: ' + process.env.DEFAULT_PASSWORD);
 
+    // Seed meter types if not present
+    try {
+      const meterTypesCount = await client.query('SELECT COUNT(*) FROM meter_types');
+      if (parseInt(meterTypesCount.rows[0].count, 10) === 0) {
+        const superadminId = superadminResult.rows[0].id;
+        const insertMeterType = `
+          INSERT INTO meter_types (name, amount, created_by)
+          VALUES ($1, $2, $3)
+          RETURNING id, name, amount;
+        `;
+
+        const singlePhase = await client.query(insertMeterType, ['Single Phase', 45000.00, superadminId]);
+        console.log('✅ Seeded meter type:', singlePhase.rows[0]);
+
+        const threePhase = await client.query(insertMeterType, ['Three Phase', 67000.00, superadminId]);
+        console.log('✅ Seeded meter type:', threePhase.rows[0]);
+      } else {
+        console.log('⚠️  Meter types already exist, skipping seed');
+      }
+    } catch (err) {
+      console.error('Failed to seed meter types:', err);
+    }
+
   } catch (error) {
     console.error('❌ Seeding failed:', error);
     throw error;

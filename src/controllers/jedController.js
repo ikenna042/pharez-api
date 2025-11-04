@@ -292,6 +292,46 @@ const getAllRequests = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: result.requests, pagination: result.pagination });
 });
 
+const getPayments = asyncHandler(async (req, res) => {
+  let { page = 1, limit = 20, status, startDate, endDate, rangePreset } = req.query;
+
+  // Interpret range presets
+  if (rangePreset) {
+    const now = new Date();
+    const tzOffset = now.getTimezoneOffset() * 60000; // ms
+    const localNow = new Date(now - tzOffset);
+
+    if (rangePreset === 'today') {
+      const start = new Date(localNow);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(localNow);
+      end.setHours(23, 59, 59, 999);
+      startDate = start.toISOString();
+      endDate = end.toISOString();
+    } else if (rangePreset === 'thisMonth') {
+      const start = new Date(localNow.getFullYear(), localNow.getMonth(), 1);
+      const end = new Date(localNow.getFullYear(), localNow.getMonth() + 1, 0, 23, 59, 59, 999);
+      startDate = start.toISOString();
+      endDate = end.toISOString();
+    } else if (rangePreset === 'thisYear') {
+      const start = new Date(localNow.getFullYear(), 0, 1);
+      const end = new Date(localNow.getFullYear(), 11, 31, 23, 59, 59, 999);
+      startDate = start.toISOString();
+      endDate = end.toISOString();
+    }
+  }
+
+  const result = await JedCustomerRequest.findPayments({
+    page: Number(page),
+    limit: Number(limit),
+    status,
+    startDate,
+    endDate
+  });
+
+  return res.json({ success: true, data: result.payments, pagination: result.pagination });
+});
+
 const getRequestsByStatus = asyncHandler(async (req, res) => {
   const { status } = req.params;
   const { page = 1, limit = 10 } = req.query;
@@ -319,5 +359,6 @@ module.exports = {
   getRequest,
   getAllRequests,
   getRequestsByStatus,
+  getPayments,
   remitaWebhook
 };

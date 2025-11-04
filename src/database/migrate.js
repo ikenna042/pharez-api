@@ -130,6 +130,19 @@ const createApiKeyLogsTable = `
   );
 `;
 
+const createMeterTypesTable = `
+  CREATE TABLE IF NOT EXISTS meter_types (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    amount NUMERIC(15,2) NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_by INTEGER REFERENCES users(id),
+    updated_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
 const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -149,6 +162,8 @@ const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
   CREATE INDEX IF NOT EXISTS idx_api_key_logs_api_key_id ON api_key_logs(api_key_id);
   CREATE INDEX IF NOT EXISTS idx_api_key_logs_created_at ON api_key_logs(created_at);
+  CREATE INDEX IF NOT EXISTS idx_meter_types_name ON meter_types(name);
+  CREATE INDEX IF NOT EXISTS idx_meter_types_active ON meter_types(is_active);
 `;
 
 const createUpdateTrigger = `
@@ -187,6 +202,13 @@ const createUpdateTrigger = `
       BEFORE UPDATE ON api_keys
       FOR EACH ROW
       EXECUTE FUNCTION update_updated_at_column();
+
+  DROP TRIGGER IF EXISTS update_meter_types_updated_at ON meter_types;
+  
+  CREATE TRIGGER update_meter_types_updated_at
+    BEFORE UPDATE ON meter_types
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 `;
 
 
@@ -214,6 +236,10 @@ const runMigration = async () => {
     // Create meters table
     await client.query(createMetersTable);
     console.log('✅ Meters table created');
+
+  // Create meter types table
+  await client.query(createMeterTypesTable);
+  console.log('✅ Meter types table created');
 
     // Create API keys table
     await client.query(createApiKeysTable);
