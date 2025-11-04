@@ -592,4 +592,104 @@ router.get('/requests', validateQuery(schemas.getRequestsQuery), jedController.g
  */
 router.get('/requests/status/:status', validateQuery(schemas.getRequestsQuery), jedController.getRequestsByStatus);
 
+/**
+ * @swagger
+ * /external/jed/payments:
+ *   get:
+ *     summary: Get payments (paid or completed) with optional date range and presets
+ *     tags: [JED Integration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Number of records per page
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PAID, COMPLETED]
+ *         description: Filter by status
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: ISO start date for filtering (inclusive)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: ISO end date for filtering (inclusive)
+ *       - in: query
+ *         name: rangePreset
+ *         schema:
+ *           type: string
+ *           enum: [today, thisMonth, thisYear]
+ *         description: Convenience presets for common date ranges
+ *     responses:
+ *       200:
+ *         description: Payments retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       custNames:
+ *                         type: string
+ *                       accountNumber:
+ *                         type: string
+ *                       amount:
+ *                         type: number
+ *                       meterType:
+ *                         type: string
+ *                       datePaid:
+ *                         type: string
+ *                         format: date-time
+ *                       dateCompleted:
+ *                         type: string
+ *                         format: date-time
+ *                       status:
+ *                         type: string
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     currentPage:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     totalCount:
+ *                       type: integer
+ *                     hasNext:
+ *                       type: boolean
+ *                     hasPrev:
+ *                       type: boolean
+ *       401:
+ *         description: Unauthorized - missing or invalid token
+ *       403:
+ *         description: Forbidden - insufficient permissions
+ */
+router.get('/payments', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getPaymentsQuery), jedController.getPayments);
+
 module.exports = router;

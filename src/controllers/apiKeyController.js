@@ -36,12 +36,6 @@ const getApiKeys = asyncHandler(async (req, res) => {
 
   const result = await ApiKey.findAll({ page, limit, isActive });
 
-  // Mask API keys in list
-//   result.apiKeys = result.apiKeys.map(key => ({
-//     ...key,
-//     apiKey: key.apiKey.substring(0, 10) + '...' + key.apiKey.substring(key.apiKey.length - 4)
-//   }));
-
   res.json({
     success: true,
     data: result.apiKeys,

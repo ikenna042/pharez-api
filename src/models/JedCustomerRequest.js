@@ -240,6 +240,119 @@ class JedCustomerRequest {
       updatedAt: dbRow.updated_at
     };
   }
+
+  static async count(filter = {}) {
+    let query = 'SELECT COUNT(*) FROM jed_customer_request WHERE 1=1';
+    const params = [];
+    let paramIndex = 0;
+
+    if (filter.status) {
+      paramIndex++;
+      query += ` AND status = $${paramIndex}`;
+      params.push(filter.status);
+    }
+
+    const result = await pool.query(query, params);
+    return parseInt(result.rows[0].count, 10);
+  }
+
+  static async sum(column, filter = {}) {
+    if (!column) throw new Error('Column name is required for sum()');
+
+    let query = `SELECT COALESCE(SUM(${column}), 0) AS total FROM jed_customer_request WHERE 1=1`;
+    const params = [];
+    let paramIndex = 0;
+
+    if (filter.status) {
+      paramIndex++;
+      query += ` AND status = $${paramIndex}`;
+      params.push(filter.status);
+    }
+
+    const result = await pool.query(query, params);
+    return parseFloat(result.rows[0].total);
+  }
+
+  static async findPayments(options = {}) {
+    // options: { page, limit, status, startDate, endDate }
+    const { page = 1, limit = 20, status, startDate, endDate } = options;
+    const offset = (page - 1) * limit;
+
+    const params = [];
+    let idx = 1;
+
+    let query = `SELECT cust_names, account_number, amount, meter_type, date_paid, date_completed, status FROM jed_customer_request WHERE 1=1`;
+
+    if (status) {
+      query += ` AND status = $${idx}`;
+      params.push(status);
+      idx++;
+    }
+
+    // date filtering: if status is COMPLETED, filter by date_completed, otherwise by date_paid
+    const dateField = status === 'COMPLETED' ? 'date_completed' : 'date_paid';
+
+    if (startDate) {
+      query += ` AND ${dateField} >= $${idx}`;
+      params.push(startDate);
+      idx++;
+    }
+
+    if (endDate) {
+      query += ` AND ${dateField} <= $${idx}`;
+      params.push(endDate);
+      idx++;
+    }
+
+    query += ` ORDER BY ${dateField} DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+    params.push(limit, offset);
+
+    const result = await pool.query(query, params);
+
+    // count
+    let countQuery = 'SELECT COUNT(*) FROM jed_customer_request WHERE 1=1';
+    const countParams = [];
+    let cidx = 1;
+    if (status) {
+      countQuery += ` AND status = $${cidx}`;
+      countParams.push(status);
+      cidx++;
+    }
+    if (startDate) {
+      countQuery += ` AND ${dateField} >= $${cidx}`;
+      countParams.push(startDate);
+      cidx++;
+    }
+    if (endDate) {
+      countQuery += ` AND ${dateField} <= $${cidx}`;
+      countParams.push(endDate);
+      cidx++;
+    }
+
+    const countRes = await pool.query(countQuery, countParams);
+    const totalCount = parseInt(countRes.rows[0].count, 10);
+
+    return {
+      payments: result.rows.map(r => ({
+        custNames: r.cust_names,
+        accountNumber: r.account_number,
+        amount: parseFloat(r.amount),
+        meterType: r.meter_type,
+        datePaid: r.date_paid,
+        dateCompleted: r.date_completed,
+        status: r.status
+      })),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasNext: page < Math.ceil(totalCount / limit),
+        hasPrev: page > 1
+      }
+    };
+  }
+
+
 }
 
 module.exports = JedCustomerRequest;
