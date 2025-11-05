@@ -1,6 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const JedCustomerRequest = require('../models/JedCustomerRequest');
+const MeterType = require('../models/MeterType');
 
 class JedService {
   
@@ -15,10 +16,27 @@ class JedService {
     const merchantId = process.env.REMITA_MERCHANT_ID;
     const apiKey = process.env.REMITA_API_KEY;
     const serviceTypeId = process.env.REMITA_SERVICE_TYPE_ID;
-    
+    const meterTypesData = await MeterType.findAll();
+    console.log('Fetched Meter Types:', meterTypesData);
     const orderId = Date.now().toString();
-    const amount = paymentData.meterRecommended === 'Single Phase' ? process.env.SINGLE_PHASE_METER_PRICE : process.env.THREE_PHASE_METER_PRICE;
-   console.log('Amount to be charged:', amount);
+
+    const selectedPhase = meterTypesData.meterTypes.find(phase => 
+      phase.name.toLowerCase() === paymentData.meterRecommended.toLowerCase()
+    );
+
+    let amount;
+    if (selectedPhase) {
+      amount = selectedPhase.amount;
+    } else {
+      // Handle the case where no match is found (e.g., set a default or throw an error)
+      console.error(`Error: No price found for phase: ${paymentData.meterRecommended}`);
+      return {
+        success: false,
+        error: 'Failed to initiate payment'
+      };
+    }
+    console.log('Amount to be charged:', amount);
+    console.log('Generating Remita hash with:', { merchantId, serviceTypeId, orderId, amount, apiKey });
     
     const apiHash = this.generateRemitaHash(merchantId, serviceTypeId, orderId, amount, apiKey);
 

@@ -24,11 +24,12 @@ const generateRef = asyncHandler(async (req, res) => {
 
   // Check if request already exists
   const existingRequest = await JedCustomerRequest.findByAccountNumber(accountNumber);
+  console.log('Existing Request:', existingRequest);
 
-    if (existingRequest) {
+  if (existingRequest && existingRequest.status !== 'COMPLETED') {
         return res.status(400).json({
         success: false,
-        message: `Request already exists for account number ${accountNumber}`,
+        message: `Pending request already exists for account number ${accountNumber}`,
         data: {
             rrr: existingRequest.rrr,
             status: existingRequest.status,
