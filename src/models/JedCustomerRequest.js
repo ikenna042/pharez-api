@@ -161,7 +161,7 @@ class JedCustomerRequest {
   }
 
   static async findAll(options = {}) {
-    const { page = 1, limit = 10, status } = options;
+    const { page = 1, limit = 10, status, vendorId, vendorName } = options;
     const offset = (page - 1) * limit;
 
     let query = 'SELECT * FROM jed_customer_request WHERE 1=1';
@@ -174,6 +174,18 @@ class JedCustomerRequest {
       queryParams.push(status);
     }
 
+    if (vendorId) {
+      paramCount++;
+      query += ` AND vendor_id = $${paramCount}`;
+      queryParams.push(vendorId);
+    }
+
+    if (vendorName) {
+      paramCount++;
+      query += ` AND vendor_name = $${paramCount}`;
+      queryParams.push(vendorName);
+    }
+
     query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
     queryParams.push(limit, offset);
 
@@ -182,10 +194,24 @@ class JedCustomerRequest {
     // Get total count
     let countQuery = 'SELECT COUNT(*) FROM jed_customer_request WHERE 1=1';
     const countParams = [];
+    let cParamIndex = 0;
 
     if (status) {
-      countQuery += ' AND status = $1';
+      cParamIndex++;
+      countQuery += ` AND status = $${cParamIndex}`;
       countParams.push(status);
+    }
+
+    if (vendorId) {
+      cParamIndex++;
+      countQuery += ` AND vendor_id = $${cParamIndex}`;
+      countParams.push(vendorId);
+    }
+
+    if (vendorName) {
+      cParamIndex++;
+      countQuery += ` AND vendor_name = $${cParamIndex}`;
+      countParams.push(vendorName);
     }
 
     const countResult = await pool.query(countQuery, countParams);
@@ -342,6 +368,49 @@ class JedCustomerRequest {
         dateCompleted: r.date_completed,
         status: r.status
       })),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasNext: page < Math.ceil(totalCount / limit),
+        hasPrev: page > 1
+      }
+    };
+  }
+
+  static async findByLoggedInstaller(installerId, options = {}) {
+    const { page = 1, limit = 10, status } = options;
+    const offset = (page - 1) * limit;
+
+    let query = 'SELECT * FROM jed_customer_request WHERE vendor_id = $1';
+    const queryParams = [installerId];
+    let paramCount = 1;
+
+    if (status) {
+      paramCount++;
+      query += ` AND status = $${paramCount}`;
+      queryParams.push(status);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+    queryParams.push(limit, offset);
+
+    const result = await pool.query(query, queryParams);
+
+    // Get total count
+    let countQuery = 'SELECT COUNT(*) FROM jed_customer_request WHERE vendor_id = $1';
+    const countParams = [installerId];
+
+    if (status) {
+      countQuery += ' AND status = $2';
+      countParams.push(status);
+    }
+
+    const countResult = await pool.query(countQuery, countParams);
+    const totalCount = parseInt(countResult.rows[0].count);
+
+    return {
+      requests: result.rows.map(row => this.formatRequest(row)),
       pagination: {
         currentPage: page,
         totalPages: Math.ceil(totalCount / limit),

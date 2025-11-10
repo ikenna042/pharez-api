@@ -459,7 +459,103 @@ router.post('/remita/webhook', jedController.remitaWebhook);
  *               $ref: '#/components/schemas/Error'
  * 
  */
-router.get('/requests/:accountNumber', jedController.getRequest);
+/**
+ * @swagger
+ * /external/jed/requests/installer:
+ *   get:
+ *     summary: Get customer requests for installers (non-sensitive fields only)
+ *     tags: [JED Integration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 10
+ *         description: Number of records per page
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [INITIATED, PAID, COMPLETED]
+ *         description: Filter by status
+ *     responses:
+ *       200:
+ *         description: Customer requests retrieved successfully (sensitive fields removed)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       accountNumber:
+ *                         type: string
+ *                       custNames:
+ *                         type: string
+ *                       gsm:
+ *                         type: string
+ *                       email:
+ *                         type: string
+ *                       address:
+ *                         type: string
+ *                       meterRecommended:
+ *                         type: string
+ *                       discoCode:
+ *                         type: string
+ *                       requestRef:
+ *                         type: string
+ *                       region:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                       meterType:
+ *                         type: string
+ *                       applicantName:
+ *                         type: string
+ *                       phone1:
+ *                         type: string
+ *                       dateRequested:
+ *                         type: string
+ *                         format: date-time
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     currentPage:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     totalCount:
+ *                       type: integer
+ *                     hasNext:
+ *                       type: boolean
+ *                     hasPrev:
+ *                       type: boolean
+ *       401:
+ *         description: Unauthorized - missing or invalid token
+ *       403:
+ *         description: Forbidden - insufficient permissions (INSTALLER required)
+ */
+router.get('/requests/installer', authenticate, authorize(['INSTALLER']), validateQuery(schemas.getRequestsQuery), jedController.getRequestsForInstaller);
+router.get('/requests/:accountNumber', authenticate, jedController.getRequest);
 
 /**
  * @swagger
@@ -523,7 +619,8 @@ router.get('/requests/:accountNumber', jedController.getRequest);
  *                       type: boolean
  *                       example: false
  */
-router.get('/requests', validateQuery(schemas.getRequestsQuery), jedController.getAllRequests);
+router.get('/requests', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getRequestsQuery), jedController.getAllRequests);
+
 
 /**
  * @swagger
@@ -590,7 +687,7 @@ router.get('/requests', validateQuery(schemas.getRequestsQuery), jedController.g
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/requests/status/:status', validateQuery(schemas.getRequestsQuery), jedController.getRequestsByStatus);
+router.get('/requests/status/:status', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getRequestsQuery), jedController.getRequestsByStatus);
 
 /**
  * @swagger
