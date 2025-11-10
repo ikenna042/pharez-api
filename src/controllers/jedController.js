@@ -293,6 +293,26 @@ const getAllRequests = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: result.requests, pagination: result.pagination });
 });
 
+// Installer-safe requests endpoint: same as getAllRequests but hide sensitive fields and scope to logged-in installer
+const getRequestsForInstaller = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10, status } = req.query;
+  const vendorId = req.user && req.user.id;
+
+  if (!vendorId) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
+
+  const result = await JedCustomerRequest.findAll({ page: Number(page), limit: Number(limit), status, vendorId });
+
+  // Remove sensitive fields from each request (amount, rrr, orderId, appId)
+  const masked = result.requests.map(r => {
+    const { amount, rrr, orderId, appId, ...rest } = r;
+    return rest;
+  });
+
+  return res.json({ success: true, data: masked, pagination: result.pagination });
+});
+
 const getPayments = asyncHandler(async (req, res) => {
   let { page = 1, limit = 20, status, startDate, endDate, rangePreset } = req.query;
 
@@ -360,6 +380,7 @@ module.exports = {
   getRequest,
   getAllRequests,
   getRequestsByStatus,
+  getRequestsForInstaller,
   getPayments,
   remitaWebhook
 };

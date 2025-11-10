@@ -211,6 +211,12 @@ const createUpdateTrigger = `
     EXECUTE FUNCTION update_updated_at_column();
 `;
 
+const alterJedTableAddVendorColumns = `
+  ALTER TABLE jed_customer_request
+  ADD COLUMN IF NOT EXISTS vendor_id VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(255);
+`;
+
 
 const runMigration = async () => {
   const client = await pool.connect();
@@ -256,6 +262,10 @@ const runMigration = async () => {
     // Create update triggers for tables
     await client.query(createUpdateTrigger);
     console.log('✅ Update trigger(s) created');
+
+  // Ensure vendor columns exist on existing jed_customer_request table (for older DBs)
+  await client.query(alterJedTableAddVendorColumns);
+  console.log('✅ Ensured vendor columns exist on jed_customer_request');
     
     // Commit transaction
     await client.query('COMMIT');
