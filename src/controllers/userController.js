@@ -48,7 +48,7 @@ const getUsers = asyncHandler(async (req, res) => {
 const getUserById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const currentUser = req.user;
-  const requestedUserId = parseInt(id);
+  const requestedUserId = id; // UUID string
 
   // Access control
   if (currentUser.role === 'INSTALLER' && currentUser.id !== requestedUserId) {
@@ -164,7 +164,7 @@ const updateUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const updateData = req.body;
   const currentUser = req.user;
-  const targetUserId = parseInt(id);
+  const targetUserId = id; // UUID string
 
   const targetUser = await User.findById(targetUserId);
   if (!targetUser) {
@@ -223,7 +223,7 @@ const updateUser = asyncHandler(async (req, res) => {
 const deleteUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const currentUser = req.user;
-  const targetUserId = parseInt(id);
+  const targetUserId = id; // UUID string
 
   if (currentUser.id === targetUserId) {
     return res.status(400).json({

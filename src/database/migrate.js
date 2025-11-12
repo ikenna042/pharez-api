@@ -3,7 +3,7 @@ const pool = require('../config/database');
 
 const createUsersTable = `
   CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('SUPERADMIN', 'ADMIN', 'INSTALLER')) DEFAULT 'INSTALLER',
@@ -24,7 +24,7 @@ const createUsersTable = `
 const createOtpTable = `
   CREATE TABLE IF NOT EXISTS otps (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     phone VARCHAR(20),
     email VARCHAR(255),
     otp_code VARCHAR(6) NOT NULL,
@@ -89,7 +89,7 @@ const createMetersTable = `
     phase_type VARCHAR(50) CHECK (phase_type IN ('SINGLE PHASE', 'THREE PHASE')),
     sgc_number VARCHAR(100),
     status VARCHAR(20) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'INSTALLED', 'FAULTY', 'RETIRED')),
-    uploaded_by INTEGER REFERENCES users(id),
+    uploaded_by UUID REFERENCES users(id),
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     installed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -107,7 +107,7 @@ const createApiKeysTable = `
     is_active BOOLEAN DEFAULT true,
     expires_at TIMESTAMP WITH TIME ZONE,
     last_used_at TIMESTAMP WITH TIME ZONE,
-    created_by INTEGER REFERENCES users(id),
+    created_by UUID REFERENCES users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
   );
@@ -136,8 +136,8 @@ const createMeterTypesTable = `
     name VARCHAR(200) NOT NULL,
     amount NUMERIC(15,2) NOT NULL,
     is_active BOOLEAN DEFAULT true,
-    created_by INTEGER REFERENCES users(id),
-    updated_by INTEGER REFERENCES users(id),
+    created_by UUID REFERENCES users(id),
+    updated_by UUID REFERENCES users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
   );
@@ -226,6 +226,10 @@ const runMigration = async () => {
     
     // Start transaction
     await client.query('BEGIN');
+
+    // Ensure pgcrypto extension (for gen_random_uuid) is available
+    await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+    console.log('✅ pgcrypto extension ensured');
     
     // Create users table
     await client.query(createUsersTable);

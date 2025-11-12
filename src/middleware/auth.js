@@ -70,7 +70,7 @@ const authorize = (roles) => {
 };
 
 const checkOwnership = (req, res, next) => {
-  const requestedUserId = parseInt(req.params.id);
+  const requestedUserId = req.params.id; // user IDs are UUID strings
   const currentUserId = req.user.id;
   const userRole = req.user.role;
 
