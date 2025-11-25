@@ -1,6 +1,7 @@
 const JedCustomerRequest = require('../models/JedCustomerRequest');
 const Meter = require('../models/Meter');
 const JedService = require('../services/jedService');
+const ExcelService = require('../services/excelService');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 // Generate payment reference (RRR) via Remita and create a JED customer request
@@ -293,6 +294,26 @@ const getAllRequests = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: result.requests, pagination: result.pagination });
 });
 
+const getRequestsExport = asyncHandler(async (req, res) => {
+  console.log('Export Request Query:', req.query);
+  // Accept same query params as getAllRequests, with optional exportAll=true to fetch everything
+  let { page = 1, limit = 10000, status, exportAll } = req.query;
+  if (exportAll === 'true' || exportAll === true) {
+    page = 1;
+    limit = 1000000; // effectively unlimited for export
+  }
+
+  console.log('Export Request Params:', { page, limit, status, exportAll });
+  const result = await JedCustomerRequest.findAll({ page: Number(page), limit: Number(limit), status });
+  console.log('Export Result:', result);
+
+  const buffer = ExcelService.exportCustomerRequestsToExcel(result.requests);
+
+  res.setHeader('Content-Disposition', `attachment; filename="jed-requests.xlsx"`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  return res.send(buffer);
+});
+
 // Installer-safe requests endpoint: same as getAllRequests but hide sensitive fields and scope to logged-in installer
 const getRequestsForInstaller = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
@@ -382,5 +403,6 @@ module.exports = {
   getRequestsByStatus,
   getRequestsForInstaller,
   getPayments,
+  getRequestsExport,
   remitaWebhook
 };

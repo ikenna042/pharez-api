@@ -47,7 +47,7 @@ const authenticate = async (req, res, next) => {
 };
 
 const authorize = (roles) => {
-  console.log('Authorizing roles:', roles);
+  // console.log('Authorizing roles:', roles);
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({

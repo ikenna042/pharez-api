@@ -461,6 +461,55 @@ router.post('/remita/webhook', jedController.remitaWebhook);
  */
 /**
  * @swagger
+ * /external/jed/requests/export:
+ *   get:
+ *     summary: Export customer requests to Excel (.xlsx)
+ *     tags: [JED Integration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number (ignored when exportAll=true)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 10000
+ *         description: Number of records per page (use large number to export more rows)
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [INITIATED, PAID, COMPLETED]
+ *         description: Filter by status
+ *       - in: query
+ *         name: exportAll
+ *         schema:
+ *           type: string
+ *           enum: ['true','false']
+ *         description: If set to 'true', export all matching requests ignoring pagination
+ *     responses:
+ *       200:
+ *         description: Excel file (.xlsx) download
+ *         content:
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - insufficient permissions
+ */
+router.get('/requests/export', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getRequestsQuery), jedController.getRequestsExport);
+/**
+ * @swagger
  * /external/jed/requests/installer:
  *   get:
  *     summary: Get customer requests for installers (non-sensitive fields only)
@@ -788,5 +837,6 @@ router.get('/requests/status/:status', authenticate, authorize(['SUPERADMIN','AD
  *         description: Forbidden - insufficient permissions
  */
 router.get('/payments', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getPaymentsQuery), jedController.getPayments);
+
 
 module.exports = router;
