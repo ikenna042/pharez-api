@@ -5,7 +5,7 @@ const verificationRoutes = require('./verificationRoutes');
 const jedRoutes = require('./jedRoutes');
 const meterRoutes = require('./meterRoutes');
 const webhookRoutes = require('./webhookRoutes');
-const apiKeyRoutes = require('./ApiKeyRoutes');
+const apiKeyRoutes = require('./apiKeyRoutes');
 const settingsRoutes = require('./settingsRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 
