@@ -66,6 +66,28 @@ class JedCustomerRequest {
     return this.formatRequest(result.rows[0]);
   }
 
+  static async markPaidByRRR(rrr, webhookPayload = null) {
+    const query = `
+      UPDATE jed_customer_request
+      SET
+        status = 'PAID',
+        date_paid = NOW(),
+        webhook_data = $2,
+        updated_at = NOW()
+      WHERE rrr = $1
+      RETURNING *
+    `;
+
+    const webhookData = webhookPayload ? JSON.stringify(webhookPayload) : null;
+    const result = await pool.query(query, [rrr, webhookData]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.formatRequest(result.rows[0]);
+  }
+
   static async logWebhookPayment(accountNumber, webhookData) {
     const query = `
       UPDATE jed_customer_request
@@ -76,6 +98,17 @@ class JedCustomerRequest {
     `;
 
     await pool.query(query, [JSON.stringify(webhookData), accountNumber]);
+  }
+  static async logWebhookPaymentByRRR(rrr, webhookData) {
+    const query = `
+      UPDATE jed_customer_request
+      SET 
+        webhook_data = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE rrr = $2
+    `;
+
+    await pool.query(query, [JSON.stringify(webhookData), rrr]);
   }
 
   static async updatePaymentDetails(accountNumber, paymentData, source = 'MANUAL') {

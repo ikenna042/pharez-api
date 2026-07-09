@@ -838,5 +838,125 @@ router.get('/requests/status/:status', authenticate, authorize(['SUPERADMIN','AD
  */
 router.get('/payments', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getPaymentsQuery), jedController.getPayments);
 
+/**
+ * @swagger
+ * /external/jed/status/rrr/{rrr}:
+ *   get:
+ *     security:
+ *       - ApiKeyAuth: []
+ *     summary: Check Remita transaction status by RRR
+ *     tags: [JED Integration]
+ *     parameters:
+ *       - in: path
+ *         name: rrr
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Remita Retrieval Reference number
+ *         example: "120799142825"
+ *     responses:
+ *       200:
+ *         description: Transaction status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   description: Raw status response from Remita
+ *       400:
+ *         description: rrr is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       502:
+ *         description: Failed to check transaction status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/status/rrr/:rrr', apiKeyAuth, jedController.checkStatusByRrr);
+
+/**
+ * @swagger
+ * /external/jed/status/order/{orderId}:
+ *   get:
+ *     security:
+ *       - ApiKeyAuth: []
+ *     summary: Check Remita transaction status by orderId
+ *     tags: [JED Integration]
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Order ID generated during payment initiation
+ *         example: "1633177984000"
+ *     responses:
+ *       200:
+ *         description: Transaction status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   description: Raw status response from Remita
+ *       400:
+ *         description: orderId is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       502:
+ *         description: Failed to check transaction status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/status/order/:orderId', apiKeyAuth, jedController.checkStatusByOrderId);
+
+/**
+ * @swagger
+ * /external/jed/confirm-payment/manual/{rrr}:
+ *   post:
+ *     security:
+ *       - bearerAuth: []
+ *     summary: Manually confirm payment by RRR (admin fallback if webhook was missed)
+ *     tags: [JED Integration]
+ *     description: Checks the request status, confirms payment with JED, and marks the request as paid — same flow as the Remita webhook, triggered manually.
+ *     parameters:
+ *       - in: path
+ *         name: rrr
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Remita Retrieval Reference
+ *         example: "140008260136"
+ *     responses:
+ *       200:
+ *         description: Payment confirmed successfully
+ *       400:
+ *         description: Already paid/completed, or missing rrr
+ *       404:
+ *         description: No request found for this RRR
+ *       502:
+ *         description: Failed to confirm payment with JED
+ *       500:
+ *         description: Internal error confirming payment
+ */
+router.post('/confirm-payment/manual/:rrr', jedController.confirmPaymentManually);
 
 module.exports = router;

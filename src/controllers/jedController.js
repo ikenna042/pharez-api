@@ -387,11 +387,77 @@ const getRequestsByStatus = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: result.requests, pagination: result.pagination });
 });
 
+// Check Remita transaction status by RRR
+const checkStatusByRrr = asyncHandler(async (req, res) => {
+  const { rrr } = req.params;
+
+  if (!rrr) {
+    return res.status(400).json({ success: false, message: 'rrr is required' });
+  }
+
+  const statusResponse = await JedService.checkRemitaStatusByRrr(rrr);
+
+  if (!statusResponse.success) {
+    return res.status(502).json({
+      success: false,
+      message: 'Failed to check transaction status',
+      error: statusResponse.error
+    });
+  }
+
+  return res.json({
+    success: true,
+    data: statusResponse.data
+  });
+});
+
+// Check Remita transaction status by orderId
+const checkStatusByOrderId = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+
+  if (!orderId) {
+    return res.status(400).json({ success: false, message: 'orderId is required' });
+  }
+
+  const statusResponse = await JedService.checkRemitaStatusByOrderId(orderId);
+
+  if (!statusResponse.success) {
+    return res.status(502).json({
+      success: false,
+      message: 'Failed to check transaction status',
+      error: statusResponse.error
+    });
+  }
+
+  return res.json({
+    success: true,
+    data: statusResponse.data
+  });
+});
+
 // Remita webhook handler — expects an array of webhook objects and replies with plain text
 const remitaWebhook = asyncHandler(async (req, res) => {
   // Remita may send JSON array in body; ensure we pass correct payload
   const payload = Array.isArray(req.body) ? req.body : [req.body];
   return JedService.handleRemitaWebhook(payload, res);
+});
+
+// Manually confirm payment by RRR (admin fallback for missed/failed webhooks)
+const confirmPaymentManually = asyncHandler(async (req, res) => {
+  const { rrr } = req.params;
+
+  if (!rrr) {
+    return res.status(400).json({ success: false, message: 'rrr is required' });
+  }
+
+  const result = await JedService.confirmPaymentManuallyByRrr(rrr);
+
+  return res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    ...(result.data && { data: result.data }),
+    ...(result.error && { error: result.error })
+  });
 });
 
 module.exports = {
@@ -404,5 +470,8 @@ module.exports = {
   getRequestsForInstaller,
   getPayments,
   getRequestsExport,
-  remitaWebhook
+  remitaWebhook,
+  checkStatusByRrr,
+  checkStatusByOrderId,
+  confirmPaymentManually
 };
