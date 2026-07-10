@@ -24,7 +24,7 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'PharezAPI is running!',
+    message: `MeMetering API is running on port ${process.env.PORT || 3000}! env: ${process.env.NODE_ENV || 'development'}`,
     data: {
         timestamp: new Date().toISOString(),
         version: process.env.API_VERSION || 'v1',
