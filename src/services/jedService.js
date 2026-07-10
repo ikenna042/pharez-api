@@ -1,6 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const JedCustomerRequest = require('../models/JedCustomerRequest');
+const MeterType = require('../models/MeterType');
 
 class JedService {
   
@@ -12,13 +13,31 @@ class JedService {
 
   // Call Remita Payment Init API
   static async initiateRemitaPayment(paymentData) {
+    console.log('HTTP_PROXY:', process.env.HTTP_PROXY, process.env.HTTPS_PROXY, process.env.http_proxy, process.env.https_proxy);
     const merchantId = process.env.REMITA_MERCHANT_ID;
     const apiKey = process.env.REMITA_API_KEY;
     const serviceTypeId = process.env.REMITA_SERVICE_TYPE_ID;
-    
+    const meterTypesData = await MeterType.findAll();
+    console.log('Fetched Meter Types:', meterTypesData);
     const orderId = Date.now().toString();
-    const amount = paymentData.meterRecommended === 'Single Phase' ? process.env.SINGLE_PHASE_METER_PRICE : process.env.THREE_PHASE_METER_PRICE;
-   console.log('Amount to be charged:', amount);
+
+    const selectedPhase = meterTypesData.meterTypes.find(phase => 
+      phase.name.toLowerCase() === paymentData.meterRecommended.toLowerCase()
+    );
+
+    let amount;
+    if (selectedPhase) {
+      amount = selectedPhase.amount;
+    } else {
+      // Handle the case where no match is found (e.g., set a default or throw an error)
+      console.error(`Error: No price found for phase: ${paymentData.meterRecommended}`);
+      return {
+        success: false,
+        error: 'Failed to initiate payment'
+      };
+    }
+    console.log('Amount to be charged:', amount);
+    console.log('Generating Remita hash with:', { merchantId, serviceTypeId, orderId, amount, apiKey });
     
     const apiHash = this.generateRemitaHash(merchantId, serviceTypeId, orderId, amount, apiKey);
 
@@ -41,7 +60,7 @@ class JedService {
       const response = await axios.post(
         `${process.env.REMITA_BASE_URL}/merchant/api/paymentinit`,
         payload,
-        { headers }
+        { headers, maxRedirects: 0 }
       );
 
       return {
@@ -204,24 +223,202 @@ class JedService {
   // Process a single Remita webhook entry
   static async processWebhook(webhook_data = {}) {
     try {
-      const { rrr, orderRef } = webhook_data;
+      const { rrr, orderId } = webhook_data;
+
+      // log webhook data for debugging
+      console.log('Received Remita webhook data:', webhook_data);
 
       if (!rrr) return false;
 
       // Check existing transaction/request
-      const existing = await JedCustomerRequest.findByRrr(rrr);
-      if (existing && existing.status === 'PAID') {
+      const existing = await JedCustomerRequest.findByRRR(rrr);
+
+      if (!existing) {
+        console.error('No existing transaction found for RRR:', rrr);
+        return false;
+      }
+      
+      // call logWebhookPaymentByRRR to log the webhook data
+      await JedCustomerRequest.logWebhookPaymentByRRR(rrr, webhook_data);
+
+      if (existing.status === 'COMPLETED' || existing.status === 'PAID') {
+        console.log('Transaction already marked as completed or paid:', rrr);
         return true; // already processed
       }
 
+      // Call JED to confirm payment
+      const jedResponse = await this.confirmPaymentWithJed({
+        accountNumber: existing.accountNumber,
+        rrr,
+        amount: existing.amount,
+        orderId: existing.orderId
+      });
+
+      // Log the request and response for debugging
+      console.log('JED Payment Confirmation Request Data:', {
+        accountNumber: existing.accountNumber,
+        rrr,
+        amount: existing.amount,
+        orderId: existing.orderId
+      });
+      console.log('JED Payment Confirmation Response:', jedResponse);
+      
+      if (!jedResponse.success) {
+        console.error('Failed to confirm payment with JED:', jedResponse.error);
+        return false;
+      }
+
       // Mark as paid
-      const updated = await JedCustomerRequest.markPaidByRrr(rrr, orderRef || null);
+      const updated = await JedCustomerRequest.markPaidByRRR(rrr, webhook_data);
       return !!updated;
     } catch (error) {
       console.error('Error processing Remita webhook:', error.message);
       return false;
     }
   }
+
+// Generate status-check hash (different formula from payment-init hash)
+  static generateStatusHash(value, apiKey, merchantId) {
+    const hashString = `${value}${apiKey}${merchantId}`;
+    return crypto.createHash('sha512').update(hashString).digest('hex');
+  }
+
+  // Check Remita transaction status by RRR
+  static async checkRemitaStatusByRrr(rrr) {
+    const merchantId = process.env.REMITA_MERCHANT_ID;
+    const apiKey = process.env.REMITA_API_KEY;
+
+    const apiHash = this.generateStatusHash(rrr, apiKey, merchantId);
+    const url = `${process.env.REMITA_BASE_URL}/${merchantId}/${rrr}/${apiHash}/status.reg`;
+
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `remitaConsumerKey=${merchantId},remitaConsumerToken=${apiHash}`
+        }
+      });
+
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Remita Status Check (RRR) Error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data || { message: 'Failed to check transaction status by RRR' }
+      };
+    }
+  }
+
+  // Check Remita transaction status by orderId
+  static async checkRemitaStatusByOrderId(orderId) {
+    const merchantId = process.env.REMITA_MERCHANT_ID;
+    const apiKey = process.env.REMITA_API_KEY;
+
+    const apiHash = this.generateStatusHash(orderId, apiKey, merchantId);
+    const url = `${process.env.REMITA_BASE_URL}/${merchantId}/${orderId}/${apiHash}/orderstatus.reg`;
+
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `remitaConsumerKey=${merchantId},remitaConsumerToken=${apiHash}`
+        }
+      });
+
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Remita Status Check (orderId) Error:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data || { message: 'Failed to check transaction status by orderId' }
+      };
+    }
+  }
+
+  // Manually confirm payment by RRR (mirrors processWebhook but returns detailed result)
+  static async confirmPaymentManuallyByRrr(rrr) {
+    try {
+      // 1. Check existing transaction/request
+      const existing = await JedCustomerRequest.findByRRR(rrr);
+
+      if (!existing) {
+        return {
+          success: false,
+          statusCode: 404,
+          message: `No request found for RRR ${rrr}`
+        };
+      }
+
+      if (existing.status === 'COMPLETED' || existing.status === 'PAID') {
+        return {
+          success: false,
+          statusCode: 400,
+          message: `Request already ${existing.status.toLowerCase()} for RRR ${rrr}`,
+          data: existing
+        };
+      }
+
+      // 2. Call JED to confirm payment
+      const jedResponse = await this.confirmPaymentWithJed({
+        accountNumber: existing.accountNumber,
+        rrr,
+        amount: existing.amount,
+        orderId: existing.orderId
+      });
+
+      // Log the request and response for debugging
+      console.log('JED Payment Confirmation Request Data:', {
+        accountNumber: existing.accountNumber,
+        rrr,
+        amount: existing.amount,
+        orderId: existing.orderId
+      });
+      console.log('JED Payment Confirmation Response:', jedResponse);
+
+      if (!jedResponse.success) {
+        console.error('Failed to confirm payment with JED:', jedResponse.error);
+        return {
+          success: false,
+          statusCode: 502,
+          message: 'Failed to confirm payment with JED',
+          error: jedResponse.error
+        };
+      }
+
+      // 3. Mark as paid
+      const updated = await JedCustomerRequest.markPaidByRRR(rrr, {
+        manualConfirmation: true,
+        confirmedAt: new Date().toISOString()
+      });
+
+      if (!updated) {
+        return {
+          success: false,
+          statusCode: 500,
+          message: 'Payment confirmed with JED but failed to update request status'
+        };
+      }
+
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Payment confirmed successfully',
+        data: {
+          request: updated,
+          pendingInstallation: jedResponse.data
+        }
+      };
+    } catch (error) {
+      console.error('Error manually confirming payment:', error.message);
+      return {
+        success: false,
+        statusCode: 500,
+        message: 'Failed to manually confirm payment',
+        error: error.message
+      };
+    }
+  }
+
 }
 
 module.exports = JedService;

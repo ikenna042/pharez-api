@@ -75,6 +75,7 @@ const getMeters = asyncHandler(async (req, res) => {
 });
 
 const getMeterById = asyncHandler(async (req, res) => {
+  console.log('Fetching meter by ID:', req.params);
   const { id } = req.params;
 
   const meter = await Meter.findById(id);
@@ -91,6 +92,26 @@ const getMeterById = asyncHandler(async (req, res) => {
     data: meter
   });
 });
+
+const getMeterByMeterNumber = asyncHandler(async (req, res) => {
+  const { meterNumber } = req.params;
+  console.log('Fetching meter by Meter Number:', meterNumber);
+
+  const meter = await Meter.findByMeterNumber(meterNumber);
+
+  if (!meter) {
+    return res.status(404).json({
+      success: false,
+      message: 'Meter not found'
+    });
+  }
+
+  res.json({
+    success: true,
+    data: meter
+  });
+});
+
 
 const getMeterStatistics = asyncHandler(async (req, res) => {
   const stats = await Meter.getStatistics();
@@ -149,6 +170,7 @@ module.exports = {
   exportMeters,
   getMeters,
   getMeterById,
+  getMeterByMeterNumber,
   getMeterStatistics,
   deleteMeter,
   exportCustomerRequests

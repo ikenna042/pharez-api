@@ -42,17 +42,17 @@ class Meter {
 
     if (status) {
       paramCount++;
-      query += ` AND status = ${paramCount}`;
+        query += ` AND status = $${paramCount}`;
       queryParams.push(status);
     }
 
     if (phaseType) {
       paramCount++;
-      query += ` AND phase_type = ${paramCount}`;
+        query += ` AND phase_type = $${paramCount}`;
       queryParams.push(phaseType);
     }
 
-    query += ` ORDER BY created_at DESC LIMIT ${paramCount + 1} OFFSET ${paramCount + 2}`;
+      query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
     queryParams.push(limit, offset);
 
     const result = await pool.query(query, queryParams);
@@ -64,13 +64,13 @@ class Meter {
 
     if (status) {
       countParamCount++;
-      countQuery += ` AND status = ${countParamCount}`;
+        countQuery += ` AND status = $${countParamCount}`;
       countParams.push(status);
     }
 
     if (phaseType) {
       countParamCount++;
-      countQuery += ` AND phase_type = ${countParamCount}`;
+        countQuery += ` AND phase_type = $${countParamCount}`;
       countParams.push(phaseType);
     }
 
@@ -193,12 +193,12 @@ class Meter {
 
     if (installedAt && status === 'INSTALLED') {
       paramCount++;
-      query += `, installed_at = ${paramCount}`;
+        query += `, installed_at = $${paramCount}`;
       params.push(installedAt);
     }
 
     paramCount++;
-    query += ` WHERE meter_number = ${paramCount} RETURNING *`;
+      query += ` WHERE meter_number = $${paramCount} RETURNING *`;
     params.push(meterNumber);
 
     const result = await pool.query(query, params);

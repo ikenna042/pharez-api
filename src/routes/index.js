@@ -5,6 +5,9 @@ const verificationRoutes = require('./verificationRoutes');
 const jedRoutes = require('./jedRoutes');
 const meterRoutes = require('./meterRoutes');
 const webhookRoutes = require('./webhookRoutes');
+const apiKeyRoutes = require('./apiKeyRoutes');
+const settingsRoutes = require('./settingsRoutes');
+const dashboardRoutes = require('./dashboardRoutes');
 
 const router = express.Router();
 
@@ -19,9 +22,11 @@ router.get('/', (req, res) => {
       verification: '/verification',
       meters: '/meters',
       webhooks: '/webhooks',
+      apiKeys: '/apikeys',
       external: {
         jed: '/external/jed'
-      }
+      },
+      dashboard: './dashboard-stats'
     },
     documentation: '/api-docs'
   });
@@ -34,5 +39,7 @@ router.use('/verification', verificationRoutes);
 router.use('/meters', meterRoutes);
 router.use('/webhooks', webhookRoutes);
 router.use('/external/jed', jedRoutes);
-
+router.use('/apikeys', apiKeyRoutes);
+router.use('/settings', settingsRoutes);
+router.use('/dashboard-stats', dashboardRoutes);
 module.exports = router;

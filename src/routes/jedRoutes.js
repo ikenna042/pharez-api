@@ -1,6 +1,8 @@
 const express = require('express');
 const jedController = require('../controllers/jedController');
 const { validate, validateQuery, schemas } = require('../middleware/validation');
+const { apiKeyAuth } = require('../middleware/apiKeyAuth');
+const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -8,7 +10,7 @@ const router = express.Router();
  * @swagger
  * tags:
  *   name: JED Integration
- *   description: External JED meter installation and payment integration (No authentication required)
+ *   description: External JED meter installation and payment integration
  */
 
 /**
@@ -86,6 +88,8 @@ const router = express.Router();
  * @swagger
  * /external/jed/generate-ref:
  *   post:
+ *     security:
+ *       - ApiKeyAuth: []
  *     summary: Generate Remita payment reference for meter installation
  *     tags: [JED Integration]
  *     requestBody:
@@ -210,7 +214,7 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/generate-ref', validate(schemas.generateRef), jedController.generateRef);
+router.post('/generate-ref', apiKeyAuth, validate(schemas.generateRef), jedController.generateRef);
 
 /**
  * @swagger
@@ -309,6 +313,8 @@ router.post('/confirm-payment', validate(schemas.confirmPayment), jedController.
  * @swagger
  * /external/jed/complete-installation:
  *   post:
+ *     security:
+ *       - bearerAuth: []
  *     summary: Complete meter installation and notify JED
  *     tags: [JED Integration]
  *     description: Send installation details to JED after meter has been installed
@@ -386,7 +392,7 @@ router.post('/confirm-payment', validate(schemas.confirmPayment), jedController.
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/complete-installation', validate(schemas.completeInstallation), jedController.completeInstallation);
+router.post('/complete-installation', authenticate, validate(schemas.completeInstallation), jedController.completeInstallation);
 
 /**
  * @swagger
@@ -453,7 +459,152 @@ router.post('/remita/webhook', jedController.remitaWebhook);
  *               $ref: '#/components/schemas/Error'
  * 
  */
-router.get('/requests/:accountNumber', jedController.getRequest);
+/**
+ * @swagger
+ * /external/jed/requests/export:
+ *   get:
+ *     summary: Export customer requests to Excel (.xlsx)
+ *     tags: [JED Integration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number (ignored when exportAll=true)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 10000
+ *         description: Number of records per page (use large number to export more rows)
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [INITIATED, PAID, COMPLETED]
+ *         description: Filter by status
+ *       - in: query
+ *         name: exportAll
+ *         schema:
+ *           type: string
+ *           enum: ['true','false']
+ *         description: If set to 'true', export all matching requests ignoring pagination
+ *     responses:
+ *       200:
+ *         description: Excel file (.xlsx) download
+ *         content:
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - insufficient permissions
+ */
+router.get('/requests/export', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getRequestsQuery), jedController.getRequestsExport);
+/**
+ * @swagger
+ * /external/jed/requests/installer:
+ *   get:
+ *     summary: Get customer requests for installers (non-sensitive fields only)
+ *     tags: [JED Integration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 10
+ *         description: Number of records per page
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [INITIATED, PAID, COMPLETED]
+ *         description: Filter by status
+ *     responses:
+ *       200:
+ *         description: Customer requests retrieved successfully (sensitive fields removed)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       accountNumber:
+ *                         type: string
+ *                       custNames:
+ *                         type: string
+ *                       gsm:
+ *                         type: string
+ *                       email:
+ *                         type: string
+ *                       address:
+ *                         type: string
+ *                       meterRecommended:
+ *                         type: string
+ *                       discoCode:
+ *                         type: string
+ *                       requestRef:
+ *                         type: string
+ *                       region:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                       meterType:
+ *                         type: string
+ *                       applicantName:
+ *                         type: string
+ *                       phone1:
+ *                         type: string
+ *                       dateRequested:
+ *                         type: string
+ *                         format: date-time
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     currentPage:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     totalCount:
+ *                       type: integer
+ *                     hasNext:
+ *                       type: boolean
+ *                     hasPrev:
+ *                       type: boolean
+ *       401:
+ *         description: Unauthorized - missing or invalid token
+ *       403:
+ *         description: Forbidden - insufficient permissions (INSTALLER required)
+ */
+router.get('/requests/installer', authenticate, authorize(['INSTALLER']), validateQuery(schemas.getRequestsQuery), jedController.getRequestsForInstaller);
+router.get('/requests/:accountNumber', authenticate, jedController.getRequest);
 
 /**
  * @swagger
@@ -517,7 +668,8 @@ router.get('/requests/:accountNumber', jedController.getRequest);
  *                       type: boolean
  *                       example: false
  */
-router.get('/requests', validateQuery(schemas.getRequestsQuery), jedController.getAllRequests);
+router.get('/requests', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getRequestsQuery), jedController.getAllRequests);
+
 
 /**
  * @swagger
@@ -584,6 +736,227 @@ router.get('/requests', validateQuery(schemas.getRequestsQuery), jedController.g
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/requests/status/:status', validateQuery(schemas.getRequestsQuery), jedController.getRequestsByStatus);
+router.get('/requests/status/:status', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getRequestsQuery), jedController.getRequestsByStatus);
+
+/**
+ * @swagger
+ * /external/jed/payments:
+ *   get:
+ *     summary: Get payments (paid or completed) with optional date range and presets
+ *     tags: [JED Integration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Number of records per page
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PAID, COMPLETED]
+ *         description: Filter by status
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: ISO start date for filtering (inclusive)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: ISO end date for filtering (inclusive)
+ *       - in: query
+ *         name: rangePreset
+ *         schema:
+ *           type: string
+ *           enum: [today, thisMonth, thisYear]
+ *         description: Convenience presets for common date ranges
+ *     responses:
+ *       200:
+ *         description: Payments retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       custNames:
+ *                         type: string
+ *                       accountNumber:
+ *                         type: string
+ *                       amount:
+ *                         type: number
+ *                       meterType:
+ *                         type: string
+ *                       datePaid:
+ *                         type: string
+ *                         format: date-time
+ *                       dateCompleted:
+ *                         type: string
+ *                         format: date-time
+ *                       status:
+ *                         type: string
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     currentPage:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     totalCount:
+ *                       type: integer
+ *                     hasNext:
+ *                       type: boolean
+ *                     hasPrev:
+ *                       type: boolean
+ *       401:
+ *         description: Unauthorized - missing or invalid token
+ *       403:
+ *         description: Forbidden - insufficient permissions
+ */
+router.get('/payments', authenticate, authorize(['SUPERADMIN','ADMIN']), validateQuery(schemas.getPaymentsQuery), jedController.getPayments);
+
+/**
+ * @swagger
+ * /external/jed/status/rrr/{rrr}:
+ *   get:
+ *     security:
+ *       - ApiKeyAuth: []
+ *     summary: Check Remita transaction status by RRR
+ *     tags: [JED Integration]
+ *     parameters:
+ *       - in: path
+ *         name: rrr
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Remita Retrieval Reference number
+ *         example: "120799142825"
+ *     responses:
+ *       200:
+ *         description: Transaction status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   description: Raw status response from Remita
+ *       400:
+ *         description: rrr is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       502:
+ *         description: Failed to check transaction status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/status/rrr/:rrr', apiKeyAuth, jedController.checkStatusByRrr);
+
+/**
+ * @swagger
+ * /external/jed/status/order/{orderId}:
+ *   get:
+ *     security:
+ *       - ApiKeyAuth: []
+ *     summary: Check Remita transaction status by orderId
+ *     tags: [JED Integration]
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Order ID generated during payment initiation
+ *         example: "1633177984000"
+ *     responses:
+ *       200:
+ *         description: Transaction status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   description: Raw status response from Remita
+ *       400:
+ *         description: orderId is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       502:
+ *         description: Failed to check transaction status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/status/order/:orderId', apiKeyAuth, jedController.checkStatusByOrderId);
+
+/**
+ * @swagger
+ * /external/jed/confirm-payment/manual/{rrr}:
+ *   post:
+ *     security:
+ *       - bearerAuth: []
+ *     summary: Manually confirm payment by RRR (admin fallback if webhook was missed)
+ *     tags: [JED Integration]
+ *     description: Checks the request status, confirms payment with JED, and marks the request as paid — same flow as the Remita webhook, triggered manually.
+ *     parameters:
+ *       - in: path
+ *         name: rrr
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Remita Retrieval Reference
+ *         example: "140008260136"
+ *     responses:
+ *       200:
+ *         description: Payment confirmed successfully
+ *       400:
+ *         description: Already paid/completed, or missing rrr
+ *       404:
+ *         description: No request found for this RRR
+ *       502:
+ *         description: Failed to confirm payment with JED
+ *       500:
+ *         description: Internal error confirming payment
+ */
+router.post('/confirm-payment/manual/:rrr', jedController.confirmPaymentManually);
 
 module.exports = router;

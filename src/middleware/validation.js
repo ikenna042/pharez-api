@@ -132,7 +132,47 @@ const validationSchemas = {
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(10),
     status: Joi.string().valid('INITIATED', 'PAID', 'COMPLETED').optional()
+  }),
+
+  getPaymentsQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    status: Joi.string().valid('PAID', 'COMPLETED').optional(),
+    startDate: Joi.date().iso().optional(),
+    endDate: Joi.date().iso().optional(),
+    rangePreset: Joi.string().valid('today', 'thisMonth', 'thisYear').optional()
+  }),
+
+  getListQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    isActive: Joi.boolean().optional()
+  }),
+
+  // API Key management
+  createApiKey: Joi.object({
+    keyName: Joi.string().min(3).max(100).required().trim()
+      .messages({ 'string.empty': 'Key name is required', 'string.min': 'Key name must be at least 3 characters' }),
+    description: Joi.string().max(500).optional().allow('').trim(),
+    // permissions: Joi.array().items(Joi.string().max(100)).optional(),
+    // expiresAt: Joi.date().iso().optional()
+    //   .messages({ 'date.format': 'expiresAt must be a valid ISO date string' })
   })
+
+  ,
+
+  // Meter type management
+  createMeterType: Joi.object({
+    name: Joi.string().min(1).max(200).required().trim()
+      .messages({ 'string.empty': 'Name is required' }),
+    amount: Joi.number().positive().required()
+      .messages({ 'number.base': 'Amount must be a number', 'number.positive': 'Amount must be greater than zero' })
+  }),
+
+  updateMeterType: Joi.object({
+    name: Joi.string().min(1).max(200).optional().trim(),
+    amount: Joi.number().positive().optional()
+  }).min(1)
 };
 
 

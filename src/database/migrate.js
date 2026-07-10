@@ -3,7 +3,7 @@ const pool = require('../config/database');
 
 const createUsersTable = `
   CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('SUPERADMIN', 'ADMIN', 'INSTALLER')) DEFAULT 'INSTALLER',
@@ -24,7 +24,7 @@ const createUsersTable = `
 const createOtpTable = `
   CREATE TABLE IF NOT EXISTS otps (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     phone VARCHAR(20),
     email VARCHAR(255),
     otp_code VARCHAR(6) NOT NULL,
@@ -69,6 +69,8 @@ const createJedCustomerRequestTable = `
     date_paid TIMESTAMP WITH TIME ZONE,
     date_completed TIMESTAMP WITH TIME ZONE,
     webhook_data JSONB,
+    vendor_id VARCHAR(100),
+    vendor_name VARCHAR(255),
     payment_source VARCHAR(20) DEFAULT 'MANUAL' CHECK (payment_source IN ('MANUAL', 'WEBHOOK')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -87,9 +89,55 @@ const createMetersTable = `
     phase_type VARCHAR(50) CHECK (phase_type IN ('SINGLE PHASE', 'THREE PHASE')),
     sgc_number VARCHAR(100),
     status VARCHAR(20) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'INSTALLED', 'FAULTY', 'RETIRED')),
-    uploaded_by INTEGER REFERENCES users(id),
+    uploaded_by UUID REFERENCES users(id),
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     installed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+const createApiKeysTable = `
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id SERIAL PRIMARY KEY,
+    key_name VARCHAR(100) NOT NULL,
+    api_key VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    permissions JSONB DEFAULT '[]',
+    is_active BOOLEAN DEFAULT true,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+const createApiKeyLogsTable = `
+  CREATE TABLE IF NOT EXISTS api_key_logs (
+    id SERIAL PRIMARY KEY,
+    api_key_id INTEGER REFERENCES api_keys(id) ON DELETE CASCADE,
+    endpoint VARCHAR(255) NOT NULL,
+    method VARCHAR(10) NOT NULL,
+    ip_address VARCHAR(50),
+    user_agent TEXT,
+    status_code INTEGER,
+    response_time INTEGER,
+    request_body JSONB,
+    response_body JSONB,
+    error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+const createMeterTypesTable = `
+  CREATE TABLE IF NOT EXISTS meter_types (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    amount NUMERIC(15,2) NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_by UUID REFERENCES users(id),
+    updated_by UUID REFERENCES users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
   );
@@ -108,8 +156,14 @@ const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_jed_status ON jed_customer_request(status);
   CREATE INDEX IF NOT EXISTS idx_jed_rrr ON jed_customer_request(rrr);
   CREATE INDEX IF NOT EXISTS idx_jed_date_requested ON jed_customer_request(date_requested);
-  CREATE INDEX IF NOT EXISTS idx_meters_meter_no ON meters(meter_no);
+  CREATE INDEX IF NOT EXISTS idx_meters_meter_number ON meters(meter_number);
   CREATE INDEX IF NOT EXISTS idx_meters_status ON meters(status);
+  CREATE INDEX IF NOT EXISTS idx_api_keys_api_key ON api_keys(api_key);
+  CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
+  CREATE INDEX IF NOT EXISTS idx_api_key_logs_api_key_id ON api_key_logs(api_key_id);
+  CREATE INDEX IF NOT EXISTS idx_api_key_logs_created_at ON api_key_logs(created_at);
+  CREATE INDEX IF NOT EXISTS idx_meter_types_name ON meter_types(name);
+  CREATE INDEX IF NOT EXISTS idx_meter_types_active ON meter_types(is_active);
 `;
 
 const createUpdateTrigger = `
@@ -141,6 +195,26 @@ const createUpdateTrigger = `
     BEFORE UPDATE ON meters
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+  DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
+  
+  CREATE TRIGGER update_api_keys_updated_at
+      BEFORE UPDATE ON api_keys
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+
+  DROP TRIGGER IF EXISTS update_meter_types_updated_at ON meter_types;
+  
+  CREATE TRIGGER update_meter_types_updated_at
+    BEFORE UPDATE ON meter_types
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+`;
+
+const alterJedTableAddVendorColumns = `
+  ALTER TABLE jed_customer_request
+  ADD COLUMN IF NOT EXISTS vendor_id VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(255);
 `;
 
 
@@ -152,6 +226,10 @@ const runMigration = async () => {
     
     // Start transaction
     await client.query('BEGIN');
+
+    // Ensure pgcrypto extension (for gen_random_uuid) is available
+    await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+    console.log('✅ pgcrypto extension ensured');
     
     // Create users table
     await client.query(createUsersTable);
@@ -168,6 +246,18 @@ const runMigration = async () => {
     // Create meters table
     await client.query(createMetersTable);
     console.log('✅ Meters table created');
+
+  // Create meter types table
+  await client.query(createMeterTypesTable);
+  console.log('✅ Meter types table created');
+
+    // Create API keys table
+    await client.query(createApiKeysTable);
+    console.log('✅ API Keys table created');
+
+    // Create API key logs table
+    await client.query(createApiKeyLogsTable);
+    console.log('✅ API Key Logs table created');
     
     // Create indexes (including new tables)
     await client.query(createIndexes);
@@ -176,6 +266,10 @@ const runMigration = async () => {
     // Create update triggers for tables
     await client.query(createUpdateTrigger);
     console.log('✅ Update trigger(s) created');
+
+  // Ensure vendor columns exist on existing jed_customer_request table (for older DBs)
+  await client.query(alterJedTableAddVendorColumns);
+  console.log('✅ Ensured vendor columns exist on jed_customer_request');
     
     // Commit transaction
     await client.query('COMMIT');

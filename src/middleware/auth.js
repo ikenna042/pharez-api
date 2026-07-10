@@ -4,6 +4,7 @@ const User = require('../models/User');
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
+    console.log('Authorization Header:', authHeader);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
@@ -45,7 +46,8 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-const authorize = (...roles) => {
+const authorize = (roles) => {
+  // console.log('Authorizing roles:', roles);
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -55,6 +57,8 @@ const authorize = (...roles) => {
     }
 
     if (!roles.includes(req.user.role)) {
+      console.log('User role is not authorized:', req.user.role);
+      console.log('Required roles are:', roles);
       return res.status(403).json({
         success: false,
         message: 'Insufficient permissions'
@@ -66,7 +70,7 @@ const authorize = (...roles) => {
 };
 
 const checkOwnership = (req, res, next) => {
-  const requestedUserId = parseInt(req.params.id);
+  const requestedUserId = req.params.id; // user IDs are UUID strings
   const currentUserId = req.user.id;
   const userRole = req.user.role;
 

@@ -1,6 +1,7 @@
 const JedCustomerRequest = require('../models/JedCustomerRequest');
 const Meter = require('../models/Meter');
 const JedService = require('../services/jedService');
+const ExcelService = require('../services/excelService');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 // Generate payment reference (RRR) via Remita and create a JED customer request
@@ -24,11 +25,12 @@ const generateRef = asyncHandler(async (req, res) => {
 
   // Check if request already exists
   const existingRequest = await JedCustomerRequest.findByAccountNumber(accountNumber);
+  console.log('Existing Request:', existingRequest);
 
-    if (existingRequest) {
+  if (existingRequest && existingRequest.status !== 'COMPLETED') {
         return res.status(400).json({
         success: false,
-        message: `Request already exists for account number ${accountNumber}`,
+        message: `Pending request already exists for account number ${accountNumber}`,
         data: {
             rrr: existingRequest.rrr,
             status: existingRequest.status,
@@ -179,6 +181,8 @@ const confirmPayment = asyncHandler(async (req, res) => {
 // Complete installation: verify meter, check status, send installation details to JED and update DB
 const completeInstallation = asyncHandler(async (req, res) => {
   const { sealNo, meterNo, accountNumber } = req.body;
+  // get logged in user info from req.user
+  const user = req.user;
 
   // Find the customer request
   const customerRequest = await JedCustomerRequest.findByAccountNumber(accountNumber);
@@ -258,7 +262,7 @@ const completeInstallation = asyncHandler(async (req, res) => {
 
   // Update DB: mark meter installed and update request
   const updatedMeter = await Meter.updateStatus(meterNo, 'INSTALLED');
-  const updatedRequest = await JedCustomerRequest.updateInstallationDetails(accountNumber, { sealNo, meterNo });
+  const updatedRequest = await JedCustomerRequest.updateInstallationDetails(accountNumber, user, { sealNo, meterNo });
 
   return res.json({
     success: true,
@@ -290,6 +294,86 @@ const getAllRequests = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: result.requests, pagination: result.pagination });
 });
 
+const getRequestsExport = asyncHandler(async (req, res) => {
+  console.log('Export Request Query:', req.query);
+  // Accept same query params as getAllRequests, with optional exportAll=true to fetch everything
+  let { page = 1, limit = 10000, status, exportAll } = req.query;
+  if (exportAll === 'true' || exportAll === true) {
+    page = 1;
+    limit = 1000000; // effectively unlimited for export
+  }
+
+  console.log('Export Request Params:', { page, limit, status, exportAll });
+  const result = await JedCustomerRequest.findAll({ page: Number(page), limit: Number(limit), status });
+  console.log('Export Result:', result);
+
+  const buffer = ExcelService.exportCustomerRequestsToExcel(result.requests);
+
+  res.setHeader('Content-Disposition', `attachment; filename="jed-requests.xlsx"`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  return res.send(buffer);
+});
+
+// Installer-safe requests endpoint: same as getAllRequests but hide sensitive fields and scope to logged-in installer
+const getRequestsForInstaller = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 10, status } = req.query;
+  const vendorId = req.user && req.user.id;
+
+  if (!vendorId) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
+
+  const result = await JedCustomerRequest.findAll({ page: Number(page), limit: Number(limit), status, vendorId });
+
+  // Remove sensitive fields from each request (amount, rrr, orderId, appId)
+  const masked = result.requests.map(r => {
+    const { amount, rrr, orderId, appId, ...rest } = r;
+    return rest;
+  });
+
+  return res.json({ success: true, data: masked, pagination: result.pagination });
+});
+
+const getPayments = asyncHandler(async (req, res) => {
+  let { page = 1, limit = 20, status, startDate, endDate, rangePreset } = req.query;
+
+  // Interpret range presets
+  if (rangePreset) {
+    const now = new Date();
+    const tzOffset = now.getTimezoneOffset() * 60000; // ms
+    const localNow = new Date(now - tzOffset);
+
+    if (rangePreset === 'today') {
+      const start = new Date(localNow);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(localNow);
+      end.setHours(23, 59, 59, 999);
+      startDate = start.toISOString();
+      endDate = end.toISOString();
+    } else if (rangePreset === 'thisMonth') {
+      const start = new Date(localNow.getFullYear(), localNow.getMonth(), 1);
+      const end = new Date(localNow.getFullYear(), localNow.getMonth() + 1, 0, 23, 59, 59, 999);
+      startDate = start.toISOString();
+      endDate = end.toISOString();
+    } else if (rangePreset === 'thisYear') {
+      const start = new Date(localNow.getFullYear(), 0, 1);
+      const end = new Date(localNow.getFullYear(), 11, 31, 23, 59, 59, 999);
+      startDate = start.toISOString();
+      endDate = end.toISOString();
+    }
+  }
+
+  const result = await JedCustomerRequest.findPayments({
+    page: Number(page),
+    limit: Number(limit),
+    status,
+    startDate,
+    endDate
+  });
+
+  return res.json({ success: true, data: result.payments, pagination: result.pagination });
+});
+
 const getRequestsByStatus = asyncHandler(async (req, res) => {
   const { status } = req.params;
   const { page = 1, limit = 10 } = req.query;
@@ -303,11 +387,77 @@ const getRequestsByStatus = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: result.requests, pagination: result.pagination });
 });
 
+// Check Remita transaction status by RRR
+const checkStatusByRrr = asyncHandler(async (req, res) => {
+  const { rrr } = req.params;
+
+  if (!rrr) {
+    return res.status(400).json({ success: false, message: 'rrr is required' });
+  }
+
+  const statusResponse = await JedService.checkRemitaStatusByRrr(rrr);
+
+  if (!statusResponse.success) {
+    return res.status(502).json({
+      success: false,
+      message: 'Failed to check transaction status',
+      error: statusResponse.error
+    });
+  }
+
+  return res.json({
+    success: true,
+    data: statusResponse.data
+  });
+});
+
+// Check Remita transaction status by orderId
+const checkStatusByOrderId = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+
+  if (!orderId) {
+    return res.status(400).json({ success: false, message: 'orderId is required' });
+  }
+
+  const statusResponse = await JedService.checkRemitaStatusByOrderId(orderId);
+
+  if (!statusResponse.success) {
+    return res.status(502).json({
+      success: false,
+      message: 'Failed to check transaction status',
+      error: statusResponse.error
+    });
+  }
+
+  return res.json({
+    success: true,
+    data: statusResponse.data
+  });
+});
+
 // Remita webhook handler — expects an array of webhook objects and replies with plain text
 const remitaWebhook = asyncHandler(async (req, res) => {
   // Remita may send JSON array in body; ensure we pass correct payload
   const payload = Array.isArray(req.body) ? req.body : [req.body];
   return JedService.handleRemitaWebhook(payload, res);
+});
+
+// Manually confirm payment by RRR (admin fallback for missed/failed webhooks)
+const confirmPaymentManually = asyncHandler(async (req, res) => {
+  const { rrr } = req.params;
+
+  if (!rrr) {
+    return res.status(400).json({ success: false, message: 'rrr is required' });
+  }
+
+  const result = await JedService.confirmPaymentManuallyByRrr(rrr);
+
+  return res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    ...(result.data && { data: result.data }),
+    ...(result.error && { error: result.error })
+  });
 });
 
 module.exports = {
@@ -317,5 +467,11 @@ module.exports = {
   getRequest,
   getAllRequests,
   getRequestsByStatus,
-  remitaWebhook
+  getRequestsForInstaller,
+  getPayments,
+  getRequestsExport,
+  remitaWebhook,
+  checkStatusByRrr,
+  checkStatusByOrderId,
+  confirmPaymentManually
 };

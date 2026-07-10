@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const routes = require('./routes');
 const { errorHandler } = require('./middleware/errorHandler');
 const { specs, swaggerUi } = require('./config/swagger');
+const { buildPublicSwaggerSpec, buildPostmanCollection, publicSpecs } = require('./config/swaggerPublic');
 
 const app = express();
 
@@ -32,14 +33,34 @@ app.get('/health', (req, res) => {
 });
 
 // Swagger Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+const swaggerUiOptions = {
   explorer: true,
   customCss: `
     .swagger-ui .topbar { display: none }
     .swagger-ui .info .title { color: #1976d2; }
   `,
-  customSiteTitle: "PharezAPI Documentation"
-}));
+  customSiteTitle: 'PharezAPI Documentation',
+  // Pass through swaggerOptions to control doc expansion and show security schemes clearly
+  swaggerOptions: {
+    docExpansion: 'none'
+  }
+};
+
+// Raw OpenAPI spec
+app.get('/api-docs/swagger.json', (req, res) => {
+  res.json(specs);
+});
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, swaggerUiOptions));
+
+const partnerSwaggerSpec = buildPublicSwaggerSpec(publicSpecs);
+app.get('/api-docs/external.json', (req, res) => {
+  res.json(partnerSwaggerSpec);
+});
+
+app.get('/api-docs/external-postman.json', (req, res) => {
+  res.json(buildPostmanCollection(partnerSwaggerSpec));
+});
 
 // API Routes
 app.use('/api/v1', routes);

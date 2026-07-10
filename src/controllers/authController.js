@@ -149,6 +149,7 @@ const changePassword = asyncHandler(async (req, res) => {
     });
   }
 
+
   const isValidPassword = await User.validatePassword(currentPassword, user.passwordHash);
   if (!isValidPassword) {
     return res.status(400).json({
@@ -165,10 +166,31 @@ const changePassword = asyncHandler(async (req, res) => {
   });
 });
 
+const resetPassword = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+
+  const user = await User.findByPhone(req.user.phone);
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found'
+    });
+  }
+
+  await User.updatePassword(userId, process.env.DEFAULT_PASSWORD);
+
+  res.json({
+    success: true,
+    message: 'Password reset to default successfully'
+  });
+});
+
+
 module.exports = {
   register,
   login,
   getProfile,
   updateProfile,
-  changePassword
+  changePassword,
+  resetPassword
 };

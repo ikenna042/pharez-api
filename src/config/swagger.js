@@ -7,17 +7,28 @@ const options = {
     info: {
       title: 'PharezAPI',
       version: '1.0.0',
+      // description: `
+      //   Complete API for user management and authentication system.
+
+      //   ## Authentication
+      //   - To use JWT: obtain a token via the login endpoint and include it in the Authorization header:
+      //     \`Authorization: Bearer <your_jwt_token>\`
+      //   - To use API keys for external endpoints: click the "Authorize" button in the API docs and provide the API key in the "X-API-Key" input. The key will be sent in the X-API-Key header for requests.
+
+      //   ## User Roles
+      //   - **SUPERADMIN**: Full system access
+      //   - **ADMIN**: Administrative access
+      //   - **INSTALLER**: Limited access for field operations
+      // `,
       description: `
-        Complete API for user management and authentication system.
-        
+        Complete API for JED meter installation and payment integration.
+
         ## Authentication
-        Use the login endpoint to get a JWT token, then include it in the Authorization header:
-        \`Authorization: Bearer <your_jwt_token>\`
-        
-        ## User Roles
-        - **SUPERADMIN**: Full system access
-        - **ADMIN**: Administrative access
-        - **INSTALLER**: Limited access for field operations
+        - To use API keys for external endpoints: click the "Authorize" button in the API docs and provide the API key in the "X-API-Key" input. The key will be sent in the X-API-Key header for requests.
+        SAMPLE TEST KEY: X-API-Key: pk_a2ef2f6d06e936e873e7763905245ceda17b372afa4a73f179581a1769d9ca2d
+
+        - To use JWT: obtain a token via the login endpoint and include it in the Authorization header:
+          \`Authorization: Bearer <your_jwt_token>\`
       `,
       contact: {
         name: 'API Support',
@@ -31,9 +42,17 @@ const options = {
     servers: [
       {
         url: process.env.NODE_ENV === 'production' 
-          ? 'https://api.pharez.com/api/v1' 
+          ? 'https://pharez-api.onrender.com/api/v1' 
           : `http://localhost:${process.env.PORT || 3000}/api/v1`,
         description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
+      }, // https://pharez-api.onrender.com/api/v1/users
+      {
+        url: 'http://localhost:3000/api/v1',
+        description: 'Local development server'
+      },
+      {
+        url: 'https://pharez-api.onrender.com/api/v1',
+        description: 'Production server'
       }
     ],
     components: {
@@ -43,6 +62,13 @@ const options = {
           scheme: 'bearer',
           bearerFormat: 'JWT',
           description: 'Enter JWT token obtained from login'
+        }
+        ,
+        ApiKeyAuth: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'X-API-Key',
+          description: 'Provide your API key in the X-API-Key header'
         }
       },
       schemas: {

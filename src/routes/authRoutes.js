@@ -1,6 +1,6 @@
 const express = require('express');
 const authController = require('../controllers/authController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 
 const router = express.Router();
@@ -100,17 +100,17 @@ router.post('/register', validate(schemas.createUser), authController.register);
  *               summary: Login as Superadmin
  *               value:
  *                 phone: "08012345678"
- *                 password: "SuperAdmin123!"
+ *                 password: "Pass123!"
  *             admin:
  *               summary: Login as Admin
  *               value:
- *                 phone: "08023456789"
- *                 password: "Admin123!"
+ *                 phone: "08012345679"
+ *                 password: "Pass123!"
  *             installer:
  *               summary: Login as Installer
  *               value:
- *                 phone: "08034567890"
- *                 password: "Installer123!"
+ *                 phone: "08012345680"
+ *                 password: "Pass123!"
  *     responses:
  *       200:
  *         description: Login successful
@@ -305,5 +305,59 @@ router.put('/profile', authenticate, validate(schemas.updateUser), authControlle
  *               $ref: '#/components/schemas/Error'
  */
 router.put('/change-password', authenticate, validate(schemas.changePassword), authController.changePassword);
+
+/**
+ * @swagger
+ * /auth/reset-password:
+ *   post:
+ *     summary: Reset user password to default
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *      required: true
+ *      content:
+ *       application/json:
+ *        schema:
+ *         type: object
+ *        properties:
+ *        userId:
+ *        type: string
+ *       example: 
+ *        userId: "123e4567-e89b-12d3-a456-426614174000"
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Password reset successfully"
+ *       401:
+ *         description: Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/reset-password', authenticate, authorize(['SUPERADMIN']), authController.resetPassword);
 
 module.exports = router;
