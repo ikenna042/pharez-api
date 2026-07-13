@@ -1,6 +1,7 @@
 require('dotenv').config();
 const app = require('./src/app');
 const pool = require('./src/config/database');
+const { startReconcilePendingPaymentsJob } = require('./src/jobs/reconcilePendingPayments');
 
 const PORT = process.env.PORT || 3000;
 
@@ -25,6 +26,8 @@ const startServer = async () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
       console.log(`🔗 API Base URL: http://localhost:${PORT}/api/v1`);
+
+      startReconcilePendingPaymentsJob();
     });
   } catch (error) {
     console.error('Failed to start server:', error);
