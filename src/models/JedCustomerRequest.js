@@ -454,6 +454,17 @@ class JedCustomerRequest {
     };
   }
 
+  static async findInitiatedWithRrr() {
+    const query = `
+      SELECT * FROM jed_customer_request
+      WHERE status = 'INITIATED' AND rrr IS NOT NULL
+      ORDER BY date_requested ASC
+    `;
+
+    const result = await pool.query(query);
+    return result.rows.map(row => this.formatRequest(row));
+  }
+
 
 }
 
