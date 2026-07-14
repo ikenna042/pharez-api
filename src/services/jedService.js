@@ -131,7 +131,7 @@ class JedService {
           dtCode: pendingData.dtCode,
           meterType: pendingData.meterType,
           pendingSince: pendingData.pendingSince
-        });
+        }, source);
         
         return {
           success: true,
@@ -274,7 +274,7 @@ class JedService {
         rrr,
         amount: existing.amount,
         orderId: existing.orderId
-      });
+      }, 'WEBHOOK');
 
       // Log the request and response for debugging
       console.log('JED Payment Confirmation Request Data:', {
@@ -358,7 +358,7 @@ class JedService {
   }
 
   // Manually confirm payment by RRR (mirrors processWebhook but returns detailed result)
-  static async confirmPaymentManuallyByRrr(rrr) {
+  static async confirmPaymentManuallyByRrr(rrr, source = 'MANUAL') {
     try {
       // 1. Check existing transaction/request
       const existing = await JedCustomerRequest.findByRRR(rrr);
@@ -386,7 +386,7 @@ class JedService {
         rrr,
         amount: existing.amount,
         orderId: existing.orderId
-      });
+      }, source);
 
       // Log the request and response for debugging
       console.log('JED Payment Confirmation Request Data:', {
@@ -476,7 +476,7 @@ class JedService {
         if (remitaStatus === '00' || remitaStatus === '01') {
           console.log(`Reconcile job: RRR ${request.rrr} confirmed paid by Remita, completing confirmation`);
 
-          const confirmResult = await this.confirmPaymentManuallyByRrr(request.rrr);
+          const confirmResult = await this.confirmPaymentManuallyByRrr(request.rrr, 'RECONCILE_JOB');
 
           if (confirmResult.success) {
             summary.confirmed++;
