@@ -102,7 +102,6 @@ class JedService {
         payload
       );
 
-      console.log('JED Payment Confirmation URL:', response.url);
       console.log('JED Payment Confirmation Response:', response.data);
 
       // Check for error in response
@@ -440,6 +439,68 @@ class JedService {
         error: error.message
       };
     }
+  }
+
+  // Reconcile pending (INITIATED) requests against Remita's status API.
+  // For any confirmed as paid, complete the same confirm+mark flow as the manual endpoint.
+  static async reconcilePendingPayments() {
+    const summary = { checked: 0, confirmed: 0, stillPending: 0, failed: 0, errors: [] };
+
+    let pendingRequests;
+    try {
+      pendingRequests = await JedCustomerRequest.findInitiatedWithRrr();
+    } catch (error) {
+      console.error('Reconcile job: failed to fetch pending requests:', error.message);
+      summary.errors.push({ stage: 'fetch', message: error.message });
+      return summary;
+    }
+
+    console.log(`Reconcile job: found ${pendingRequests.length} pending request(s) to check`);
+
+    for (const request of pendingRequests) {
+      summary.checked++;
+
+      try {
+        const statusResponse = await this.checkRemitaStatusByRrr(request.rrr);
+
+        if (!statusResponse.success) {
+          console.error(`Reconcile job: status check failed for RRR ${request.rrr}:`, statusResponse.error);
+          summary.failed++;
+          summary.errors.push({ rrr: request.rrr, stage: 'status_check', error: statusResponse.error });
+          continue;
+        }
+
+        const remitaStatus = statusResponse.data?.status;
+
+        // '00' and '01' denote successful/paid transactions per Remita docs
+        if (remitaStatus === '00' || remitaStatus === '01') {
+          console.log(`Reconcile job: RRR ${request.rrr} confirmed paid by Remita, completing confirmation`);
+
+          const confirmResult = await this.confirmPaymentManuallyByRrr(request.rrr);
+
+          if (confirmResult.success) {
+            summary.confirmed++;
+          } else {
+            console.error(`Reconcile job: failed to complete confirmation for RRR ${request.rrr}:`, confirmResult.message);
+            summary.failed++;
+            summary.errors.push({ rrr: request.rrr, stage: 'confirm', message: confirmResult.message });
+          }
+        } else {
+          // Still pending, or a non-success status (e.g. '021' pending) — skip for now
+          summary.stillPending++;
+        }
+      } catch (error) {
+        console.error(`Reconcile job: unexpected error for RRR ${request.rrr}:`, error.message);
+        summary.failed++;
+        summary.errors.push({ rrr: request.rrr, stage: 'unexpected', message: error.message });
+      }
+
+      // Small delay between calls to avoid hammering Remita/JED
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    console.log('Reconcile job: summary', summary);
+    return summary;
   }
 
   // Reconcile pending (INITIATED) requests against Remita's status API.
