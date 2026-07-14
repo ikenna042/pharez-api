@@ -188,6 +188,8 @@ const completeInstallation = asyncHandler(async (req, res) => {
 
   // Find the customer request
   const customerRequest = await JedCustomerRequest.findByAccountNumber(accountNumber);
+
+  console.log('Customer Request:', customerRequest);
   
   console.log('Customer Request:', customerRequest);
   
