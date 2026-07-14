@@ -81,7 +81,7 @@ class JedService {
   }
 
   // Call JED Payment Confirmation API
-  static async confirmPaymentWithJed(paymentData) {
+  static async confirmPaymentWithJed(paymentData, source = 'MANUAL') {
     const { accountNumber, rrr, amount, orderId } = paymentData;
     const date = new Date().toISOString().split('T')[0];
     
@@ -102,7 +102,8 @@ class JedService {
         payload
       );
 
-      console.log('JED Payment Confirmation Response:', response);
+      console.log('JED Payment Confirmation URL:', response.url);
+      console.log('JED Payment Confirmation Response:', response.data);
 
       // Check for error in response
       if (response.data.err) {
@@ -115,6 +116,23 @@ class JedService {
       // Successful response with PendingInstallation data
       if (response.data.PendingInstallation) {
         const pendingData = response.data.PendingInstallation;
+
+        // update the JedCustomerRequest record with the confirmed payment details
+        await JedCustomerRequest.updatePaymentConfirmation(accountNumber, {
+          accountNo: pendingData.accountNo,
+          acctName: pendingData.acctName,
+          applicantName: pendingData['Applicant Name'],
+          address: pendingData.address,
+          phone1: pendingData.phone1,
+          region: pendingData.region,
+          phone2: pendingData.phone2,
+          area: pendingData.area,
+          feeder: pendingData.feeder,
+          dtName: pendingData.dtName,
+          dtCode: pendingData.dtCode,
+          meterType: pendingData.meterType,
+          pendingSince: pendingData.pendingSince
+        });
         
         return {
           success: true,
