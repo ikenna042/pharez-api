@@ -188,6 +188,8 @@ class JedService {
       );
       // console.log('JED Installation Details Response:', response.data);
 
+      console.log('JED Installation Details Response:', response.data);
+
       // Check for errors
       if (response.data.err) {
         return {
