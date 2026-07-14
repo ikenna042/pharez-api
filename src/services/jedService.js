@@ -101,7 +101,8 @@ class JedService {
         `${process.env.JED_BASE_URL}/payConfirmation/index.php`,
         payload
       );
-      // console.log('JED Payment Confirmation Response:', response.data);
+
+      console.log('JED Payment Confirmation Response:', response.data);
 
       // Check for error in response
       if (response.data.err) {
