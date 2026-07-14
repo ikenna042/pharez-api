@@ -102,7 +102,7 @@ class JedService {
         payload
       );
 
-      console.log('JED Payment Confirmation Response:', response);
+      console.log('JED Payment Confirmation Response:', response.data);
 
       // Check for error in response
       if (response.data.err) {
