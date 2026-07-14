@@ -19,6 +19,8 @@ const generateRef = asyncHandler(async (req, res) => {
     amount
   } = req.body;
 
+  console.log('Required fields:', { accountNumber, custNames, gsm, email, meterRecommended });
+
   if (!accountNumber || !custNames || !gsm || !email) {
     return res.status(400).json({ success: false, message: 'accountNumber, custNames, gsm and email are required' });
   }
@@ -186,8 +188,6 @@ const completeInstallation = asyncHandler(async (req, res) => {
 
   // Find the customer request
   const customerRequest = await JedCustomerRequest.findByAccountNumber(accountNumber);
-
-  console.log('Customer Request:', customerRequest);
   
   console.log('Customer Request:', customerRequest);
   
@@ -259,6 +259,8 @@ const completeInstallation = asyncHandler(async (req, res) => {
     meterNo,
     accountNumber
   });
+
+  console.log('JED Response:', jedResponse);
 
   if (!jedResponse.success) {
     return res.status(502).json({ 
@@ -447,7 +449,9 @@ const checkStatusByOrderId = asyncHandler(async (req, res) => {
 const remitaWebhook = asyncHandler(async (req, res) => {
   // Remita may send JSON array in body; ensure we pass correct payload
   const payload = Array.isArray(req.body) ? req.body : [req.body];
-  return JedService.handleRemitaWebhook(payload, res);
+  // return JedService.handleRemitaWebhook(payload, res);
+  // call test webhook
+  return JedService.handleRemitaWebhookTest(req, res);
 });
 
 // Manually confirm payment by RRR (admin fallback for missed/failed webhooks)

@@ -41,8 +41,10 @@ class JedCustomerRequest {
       SELECT * FROM jed_customer_request
       WHERE account_number = $1
     `;
+    // console.log('Query:', query);
 
     const result = await pool.query(query, [accountNumber]);
+    // console.log('Result:', result);
     
     if (result.rows.length === 0) {
       return null;
