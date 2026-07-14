@@ -189,18 +189,12 @@ const completeInstallation = asyncHandler(async (req, res) => {
 
   console.log('Customer Request:', customerRequest);
   
+  console.log('Customer Request:', customerRequest);
+  
   if (!customerRequest) {
     return res.status(404).json({
       success: false,
       message: `No request found for account number ${accountNumber}`
-    });
-  }
-
-  // Check if payment is confirmed
-  if (customerRequest.status !== 'PAID') {
-    return res.status(400).json({
-      success: false,
-      message: `Payment not confirmed for account number ${accountNumber}. Current status: ${customerRequest.status}`
     });
   }
 
@@ -217,8 +211,17 @@ const completeInstallation = asyncHandler(async (req, res) => {
     });
   }
 
+  // Check if payment is confirmed
+  if (customerRequest.status !== 'PAID') {
+    return res.status(400).json({
+      success: false,
+      message: `Payment not confirmed for account number ${accountNumber}. Current status: ${customerRequest.status}`
+    });
+  }
+
   // Verify meter exists and type matches
-  const meter = await Meter.findByMeterNo(meterNo);
+  const meter = await Meter.findByMeterNumber(meterNo);
+  console.log('Meter Details:', meter);
   
   if (!meter) {
     return res.status(404).json({
@@ -228,14 +231,17 @@ const completeInstallation = asyncHandler(async (req, res) => {
   }
 
   // Validate meter type matches recommendation
+  const recommended = customerRequest.meterRecommended?.toLowerCase();
+  const actual = meter.phaseType?.toLowerCase();
+
   const meterTypeMatch = 
-    (customerRequest.meterRecommended === 'Single Phase' && meter.meterType === 'Single Phase') ||
-    (customerRequest.meterRecommended === 'Three Phase' && meter.meterType === 'Three Phase');
+      (recommended === 'single phase' && actual === 'single phase') ||
+      (recommended === 'three phase' && actual === 'three phase');
 
   if (!meterTypeMatch) {
     return res.status(400).json({
       success: false,
-      message: `Meter type mismatch. Required: ${customerRequest.meterRecommended}, Provided: ${meter.meterType}`
+      message: `Meter type mismatch. Required: ${customerRequest.meterRecommended}, Provided: ${meter.phaseType}`
     });
   }
 

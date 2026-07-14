@@ -179,11 +179,15 @@ class JedService {
       key: process.env.JED_API_KEY
     };
 
+    console.log('Sending installation details to JED with payload:', payload);
+
     try {
       const response = await axios.post(
         `${process.env.JED_BASE_URL}/installationDetails/index.php`,
         payload
       );
+
+      console.log('JED Installation Details Response:', response.data);
 
       // Check for errors
       if (response.data.err) {
