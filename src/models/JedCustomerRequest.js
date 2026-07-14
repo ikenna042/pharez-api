@@ -340,7 +340,7 @@ class JedCustomerRequest {
     const params = [];
     let idx = 1;
 
-    let query = `SELECT cust_names, account_number, amount, meter_type, date_paid, date_completed, status FROM jed_customer_request WHERE 1=1`;
+    let query = `SELECT cust_names, account_number, amount, meter_recommended, date_paid, date_completed, status, rrr, order_id, gsm, email, address, date_requested  FROM jed_customer_request WHERE 1=1`;
 
     if (status) {
       query += ` AND status = $${idx}`;
@@ -396,10 +396,16 @@ class JedCustomerRequest {
         custNames: r.cust_names,
         accountNumber: r.account_number,
         amount: parseFloat(r.amount),
-        meterType: r.meter_type,
+        meterRecommended: r.meter_recommended,
         datePaid: r.date_paid,
         dateCompleted: r.date_completed,
-        status: r.status
+        status: r.status,
+        rrr: r.rrr,
+        orderId: r.order_id,
+        gsm: r.gsm,
+        email: r.email,
+        address: r.address,
+        dateRequested: r.date_requested
       })),
       pagination: {
         currentPage: page,
