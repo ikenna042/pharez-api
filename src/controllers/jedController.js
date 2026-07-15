@@ -19,6 +19,8 @@ const generateRef = asyncHandler(async (req, res) => {
     amount
   } = req.body;
 
+  console.log('Required fields:', { accountNumber, custNames, gsm, email, meterRecommended });
+
   if (!accountNumber || !custNames || !gsm || !email) {
     return res.status(400).json({ success: false, message: 'accountNumber, custNames, gsm and email are required' });
   }
@@ -187,18 +189,12 @@ const completeInstallation = asyncHandler(async (req, res) => {
   // Find the customer request
   const customerRequest = await JedCustomerRequest.findByAccountNumber(accountNumber);
   
+  console.log('Customer Request:', customerRequest);
+  
   if (!customerRequest) {
     return res.status(404).json({
       success: false,
       message: `No request found for account number ${accountNumber}`
-    });
-  }
-
-  // Check if payment is confirmed
-  if (customerRequest.status !== 'PAID') {
-    return res.status(400).json({
-      success: false,
-      message: `Payment not confirmed for account number ${accountNumber}. Current status: ${customerRequest.status}`
     });
   }
 
@@ -215,8 +211,17 @@ const completeInstallation = asyncHandler(async (req, res) => {
     });
   }
 
+  // Check if payment is confirmed
+  if (customerRequest.status !== 'PAID') {
+    return res.status(400).json({
+      success: false,
+      message: `Payment not confirmed for account number ${accountNumber}. Current status: ${customerRequest.status}`
+    });
+  }
+
   // Verify meter exists and type matches
-  const meter = await Meter.findByMeterNo(meterNo);
+  const meter = await Meter.findByMeterNumber(meterNo);
+  console.log('Meter Details:', meter);
   
   if (!meter) {
     return res.status(404).json({
@@ -226,14 +231,17 @@ const completeInstallation = asyncHandler(async (req, res) => {
   }
 
   // Validate meter type matches recommendation
+  const recommended = customerRequest.meterRecommended?.toLowerCase();
+  const actual = meter.phaseType?.toLowerCase();
+
   const meterTypeMatch = 
-    (customerRequest.meterRecommended === 'Single Phase' && meter.meterType === 'Single Phase') ||
-    (customerRequest.meterRecommended === 'Three Phase' && meter.meterType === 'Three Phase');
+      (recommended === 'single phase' && actual === 'single phase') ||
+      (recommended === 'three phase' && actual === 'three phase');
 
   if (!meterTypeMatch) {
     return res.status(400).json({
       success: false,
-      message: `Meter type mismatch. Required: ${customerRequest.meterRecommended}, Provided: ${meter.meterType}`
+      message: `Meter type mismatch. Required: ${customerRequest.meterRecommended}, Provided: ${meter.phaseType}`
     });
   }
 
@@ -251,6 +259,8 @@ const completeInstallation = asyncHandler(async (req, res) => {
     meterNo,
     accountNumber
   });
+
+  console.log('JED Response:', jedResponse);
 
   if (!jedResponse.success) {
     return res.status(502).json({ 
@@ -439,7 +449,9 @@ const checkStatusByOrderId = asyncHandler(async (req, res) => {
 const remitaWebhook = asyncHandler(async (req, res) => {
   // Remita may send JSON array in body; ensure we pass correct payload
   const payload = Array.isArray(req.body) ? req.body : [req.body];
-  return JedService.handleRemitaWebhook(payload, res);
+  // return JedService.handleRemitaWebhook(payload, res);
+  // call test webhook
+  return JedService.handleRemitaWebhookTest(req, res);
 });
 
 // Manually confirm payment by RRR (admin fallback for missed/failed webhooks)

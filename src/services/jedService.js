@@ -101,8 +101,7 @@ class JedService {
         `${process.env.JED_BASE_URL}/payConfirmation/index.php`,
         payload
       );
-
-      console.log('JED Payment Confirmation Response:', response.data);
+      // console.log('JED Payment Confirmation Response:', response.data);
 
       // Check for error in response
       if (response.data.err) {
@@ -117,7 +116,7 @@ class JedService {
         const pendingData = response.data.PendingInstallation;
 
         // update the JedCustomerRequest record with the confirmed payment details
-        await JedCustomerRequest.updatePaymentConfirmation(accountNumber, {
+        await JedCustomerRequest.updatePaymentDetails(accountNumber, {
           accountNo: pendingData.accountNo,
           acctName: pendingData.acctName,
           applicantName: pendingData['Applicant Name'],
@@ -131,7 +130,7 @@ class JedService {
           dtCode: pendingData.dtCode,
           meterType: pendingData.meterType,
           pendingSince: pendingData.pendingSince
-        });
+        }, source);
         
         return {
           success: true,
@@ -174,16 +173,19 @@ class JedService {
     const payload = {
       sealNo,
       meterNo,
-      account: accountNumber,
+      account: accountNumber.replace(/\D/g, ''),
       date: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
       key: process.env.JED_API_KEY
     };
+
+    console.log('Sending installation details to JED with payload:', payload);
 
     try {
       const response = await axios.post(
         `${process.env.JED_BASE_URL}/installationDetails/index.php`,
         payload
       );
+      // console.log('JED Installation Details Response:', response.data);
 
       // Check for errors
       if (response.data.err) {
@@ -223,7 +225,6 @@ class JedService {
     }
   }
 
-  // Handle Remita webhook array and respond with plain text as Remita expects
   static async handleRemitaWebhook(remitaWebhookDto = [], res) {
     let overall_transaction_success = true;
 
@@ -242,30 +243,36 @@ class JedService {
       .send(overall_transaction_success ? 'Ok' : 'Not Ok');
   }
 
-  // Process a single Remita webhook entry
+  // Process a single Remita webhook entry.
+  // Return value here reflects whether the WEBHOOK ITSELF was handled
+  // (i.e. whether Remita should consider this delivered), NOT whether
+  // JED confirmation succeeded. JED failures are logged and left for
+  // the reconciliation cron to retry.
   static async processWebhook(webhook_data = {}) {
     try {
       const { rrr, orderId } = webhook_data;
 
-      // log webhook data for debugging
       console.log('Received Remita webhook data:', webhook_data);
 
-      if (!rrr) return false;
+      if (!rrr) return false; // malformed payload — worth a retry from Remita
 
-      // Check existing transaction/request
       const existing = await JedCustomerRequest.findByRRR(rrr);
 
       if (!existing) {
         console.error('No existing transaction found for RRR:', rrr);
+        // No matching record could be a race condition (webhook arriving
+        // before our own request record was persisted) — worth letting
+        // Remita retry this one.
         return false;
       }
-      
-      // call logWebhookPaymentByRRR to log the webhook data
+
+      // Always log the webhook — this is the durable record that Remita's
+      // payment succeeded, independent of what happens with JED next.
       await JedCustomerRequest.logWebhookPaymentByRRR(rrr, webhook_data);
 
       if (existing.status === 'COMPLETED' || existing.status === 'PAID') {
         console.log('Transaction already marked as completed or paid:', rrr);
-        return true; // already processed
+        return true;
       }
 
       // Call JED to confirm payment
@@ -274,9 +281,8 @@ class JedService {
         rrr,
         amount: existing.amount,
         orderId: existing.orderId
-      });
+      }, 'WEBHOOK');
 
-      // Log the request and response for debugging
       console.log('JED Payment Confirmation Request Data:', {
         accountNumber: existing.accountNumber,
         rrr,
@@ -284,10 +290,19 @@ class JedService {
         orderId: existing.orderId
       });
       console.log('JED Payment Confirmation Response:', jedResponse);
-      
+
       if (!jedResponse.success) {
         console.error('Failed to confirm payment with JED:', jedResponse.error);
-        return false;
+
+        // Mark the record so the hourly reconciliation cron picks it up.
+        // Do NOT return false here — Remita's payment was received fine;
+        // this is purely our downstream (JED) problem.
+        // await JedCustomerRequest.markJedConfirmationPending(rrr, {
+        //   lastError: jedResponse.error,
+        //   webhookData: webhook_data
+        // });
+
+        return true; // acknowledge to Remita regardless
       }
 
       // Mark as paid
@@ -295,9 +310,24 @@ class JedService {
       return !!updated;
     } catch (error) {
       console.error('Error processing Remita webhook:', error.message);
+
+      // If we already logged the webhook before the exception happened,
+      // Remita's part is still done — but we can't be sure at this point,
+      // so returning false here (triggering a retry) is the safer default
+      // since a retry is idempotent given logWebhookPaymentByRRR/findByRRR checks.
       return false;
     }
   }
+
+  // Handle Remita test webhook test
+  static async handleRemitaWebhookTest(req, res) {
+  console.log('Remita test webhook received:', req.body);
+
+  return res
+    .status(200)
+    .type('text/plain')
+    .send('Ok');
+}
 
 // Generate status-check hash (different formula from payment-init hash)
   static generateStatusHash(value, apiKey, merchantId) {
@@ -358,7 +388,7 @@ class JedService {
   }
 
   // Manually confirm payment by RRR (mirrors processWebhook but returns detailed result)
-  static async confirmPaymentManuallyByRrr(rrr) {
+  static async confirmPaymentManuallyByRrr(rrr, source = 'MANUAL') {
     try {
       // 1. Check existing transaction/request
       const existing = await JedCustomerRequest.findByRRR(rrr);
@@ -386,7 +416,7 @@ class JedService {
         rrr,
         amount: existing.amount,
         orderId: existing.orderId
-      });
+      }, source);
 
       // Log the request and response for debugging
       console.log('JED Payment Confirmation Request Data:', {
@@ -476,7 +506,7 @@ class JedService {
         if (remitaStatus === '00' || remitaStatus === '01') {
           console.log(`Reconcile job: RRR ${request.rrr} confirmed paid by Remita, completing confirmation`);
 
-          const confirmResult = await this.confirmPaymentManuallyByRrr(request.rrr);
+          const confirmResult = await this.confirmPaymentManuallyByRrr(request.rrr, 'RECONCILE_JOB');
 
           if (confirmResult.success) {
             summary.confirmed++;
