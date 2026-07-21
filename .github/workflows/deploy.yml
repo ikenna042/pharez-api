@@ -17,9 +17,28 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            set -e
+
+            echo "Deploying latest production code..."
+
             cd /var/www/pharez-api
+
             git fetch origin
             git checkout prod
             git reset --hard origin/prod
-            npm install --omit=dev
+
+            npm ci --omit=dev
+
             pm2 restart pharez-api
+            pm2 save
+
+            echo "Waiting for application to start..."
+            sleep 5
+
+            echo "PM2 Status:"
+            pm2 status
+
+            echo "Health Check:"
+            curl --fail http://127.0.0.1:3000/health
+
+            echo "Deployment completed successfully."
