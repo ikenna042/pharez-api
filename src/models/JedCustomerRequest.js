@@ -303,7 +303,10 @@ class JedCustomerRequest {
       sealNo: dbRow.seal_no,
       meterNo: dbRow.meter_no,
       datePaid: dbRow.date_paid,
+      dateConfirmed: dbRow.date_confirmed,
       dateCompleted: dbRow.date_completed,
+      lastJedError: dbRow.last_jed_error,
+      jedConfirmationAttempts: dbRow.jed_confirmation_attempts,
       createdAt: dbRow.created_at,
       updatedAt: dbRow.updated_at
     };
