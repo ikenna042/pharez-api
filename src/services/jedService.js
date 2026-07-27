@@ -273,9 +273,14 @@ class JedService {
       // payment succeeded, independent of what happens with JED next.
       await JedCustomerRequest.logWebhookPaymentByRRR(rrr, webhook_data);
 
-      if (existing.status === 'COMPLETED' || existing.status === 'PAID') {
-        console.log('Transaction already marked as completed or paid:', rrr);
+      if (existing.status === 'COMPLETED' || existing.status === 'CONFIRMED') {
+        console.log('Transaction already marked as completed or confirmed:', rrr);
         return true;
+      }
+
+      // Record Remita's success immediately, independent of JED
+      if (existing.status === 'INITIATED') {
+        await JedCustomerRequest.markPaidByRRR(rrr, webhook_data);
       }
 
       // Call JED to confirm payment
@@ -300,17 +305,18 @@ class JedService {
         // Mark the record so the hourly reconciliation cron picks it up.
         // Do NOT return false here — Remita's payment was received fine;
         // this is purely our downstream (JED) problem.
-        // await JedCustomerRequest.markJedConfirmationPending(rrr, {
-        //   lastError: jedResponse.error,
-        //   webhookData: webhook_data
-        // });
+        await JedCustomerRequest.markJedConfirmationPending(rrr, {
+          lastError: jedResponse.error,
+          webhookData: webhook_data
+        });
 
         return true; // acknowledge to Remita regardless
       }
 
       // Mark as paid
-      const updated = await JedCustomerRequest.markPaidByRRR(rrr, webhook_data);
-      return !!updated;
+      // const updated = await JedCustomerRequest.markPaidByRRR(rrr, webhook_data);
+      // return !!updated;
+      return true; // acknowledge to Remita regardless
     } catch (error) {
       console.error('Error processing Remita webhook:', error.message);
 
@@ -404,7 +410,7 @@ class JedService {
         };
       }
 
-      if (existing.status === 'COMPLETED' || existing.status === 'PAID') {
+      if (existing.status === 'COMPLETED' || existing.status === 'CONFIRMED') {
         return {
           success: false,
           statusCode: 400,
@@ -440,19 +446,20 @@ class JedService {
         };
       }
 
-      // 3. Mark as paid
-      const updated = await JedCustomerRequest.markPaidByRRR(rrr, {
-        manualConfirmation: true,
-        confirmedAt: new Date().toISOString()
-      });
+      // 3. Mark as confirmed
+      // const updated = await JedCustomerRequest.markConfirmedByRRR(rrr, {
+      //   manualConfirmation: true,
+      //   confirmedAt: new Date().toISOString()
+      // });
+      const updated = await JedCustomerRequest.findByRRR(rrr);
 
-      if (!updated) {
-        return {
-          success: false,
-          statusCode: 500,
-          message: 'Payment confirmed with JED but failed to update request status'
-        };
-      }
+      // if (!updated) {
+      //   return {
+      //     success: false,
+      //     statusCode: 500,
+      //     message: 'Payment confirmed with JED but failed to update request status'
+      //   };
+      // }
 
       return {
         success: true,
@@ -474,23 +481,12 @@ class JedService {
     }
   }
 
-  // Reconcile pending (INITIATED) requests against Remita's status API.
-  // For any confirmed as paid, complete the same confirm+mark flow as the manual endpoint.
   static async reconcilePendingPayments() {
     const summary = { checked: 0, confirmed: 0, stillPending: 0, failed: 0, errors: [] };
 
-    let pendingRequests;
-    try {
-      pendingRequests = await JedCustomerRequest.findInitiatedWithRrr();
-    } catch (error) {
-      console.error('Reconcile job: failed to fetch pending requests:', error.message);
-      summary.errors.push({ stage: 'fetch', message: error.message });
-      return summary;
-    }
-
-    console.log(`Reconcile job: found ${pendingRequests.length} pending request(s) to check`);
-
-    for (const request of pendingRequests) {
+    // Category 1: INITIATED — webhook may never have arrived; ask Remita directly
+    const initiated = await JedCustomerRequest.findInitiatedWithRrr();
+    for (const request of initiated) {
       summary.checked++;
 
       try {
@@ -529,6 +525,42 @@ class JedService {
       }
 
       // Small delay between calls to avoid hammering Remita/JED
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    // Category 2: PAID — Remita already confirmed, but JED confirmation failed or never ran.
+    // No need to re-check Remita's status here; go straight at JED.
+    const awaitingJed = await JedCustomerRequest.findPaidAwaitingJedConfirmation();
+    console.log(`Reconcile job: found ${awaitingJed.length} PAID request(s) awaiting JED confirmation`);
+
+    for (const request of awaitingJed) {
+      summary.checked++;
+
+      // Skip rows that have failed too many times — surface for manual review instead of hammering JED forever
+      if (request.jedConfirmationAttempts >= 20) {
+        summary.failed++;
+        summary.errors.push({ rrr: request.rrr, stage: 'max_attempts', message: 'Exceeded max JED retry attempts' });
+        continue;
+      }
+
+      try {
+        const confirmResult = await this.confirmPaymentManuallyByRrr(request.rrr, 'RECONCILE_JOB');
+
+        if (confirmResult.success) {
+          summary.confirmed++;
+        } else {
+          await JedCustomerRequest.markJedConfirmationPending(request.rrr, {
+            lastError: confirmResult.error || confirmResult.message,
+            webhookData: null
+          });
+          summary.failed++;
+          summary.errors.push({ rrr: request.rrr, stage: 'jed_confirm', message: confirmResult.message });
+        }
+      } catch (error) {
+        summary.failed++;
+        summary.errors.push({ rrr: request.rrr, stage: 'unexpected', message: error.message });
+      }
+
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
