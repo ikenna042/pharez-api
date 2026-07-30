@@ -212,7 +212,11 @@ const completeInstallation = asyncHandler(async (req, res) => {
   }
 
   // Check if payment is confirmed
+<<<<<<< HEAD
   if (customerRequest.status !== 'CONFIRMED') {
+=======
+  if (customerRequest.status !== 'PAID') {
+>>>>>>> 4532013 (Ikenna/dev (#26))
     return res.status(400).json({
       success: false,
       message: `Payment not confirmed for account number ${accountNumber}. Current status: ${customerRequest.status}`
@@ -449,9 +453,15 @@ const checkStatusByOrderId = asyncHandler(async (req, res) => {
 const remitaWebhook = asyncHandler(async (req, res) => {
   // Remita may send JSON array in body; ensure we pass correct payload
   const payload = Array.isArray(req.body) ? req.body : [req.body];
+<<<<<<< HEAD
   return JedService.handleRemitaWebhook(payload, res);
   // call test webhook
   //return JedService.handleRemitaWebhookTest(req, res);
+=======
+  // return JedService.handleRemitaWebhook(payload, res);
+  // call test webhook
+  return JedService.handleRemitaWebhookTest(req, res);
+>>>>>>> 4532013 (Ikenna/dev (#26))
 });
 
 // Manually confirm payment by RRR (admin fallback for missed/failed webhooks)
