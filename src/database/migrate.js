@@ -54,7 +54,7 @@ const createJedCustomerRequestTable = `
     order_id VARCHAR(100),
     app_id VARCHAR(100),
     date_requested TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(20) CHECK (status IN ('INITIATED', 'PAID', 'COMPLETED')) DEFAULT 'INITIATED',
+    status VARCHAR(20) CHECK (status IN ('INITIATED', 'PAID', 'CONFIRMED', 'COMPLETED')) DEFAULT 'INITIATED',
     applicant_name VARCHAR(255),
     phone1 VARCHAR(20),
     phone2 VARCHAR(20),
@@ -217,6 +217,18 @@ const alterJedTableAddVendorColumns = `
   ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(255);
 `;
 
+const alterJedTableAddConfirmedStatus = `
+  ALTER TABLE jed_customer_request
+  ADD COLUMN IF NOT EXISTS date_confirmed TIMESTAMP WITH TIME ZONE,
+  ADD COLUMN IF NOT EXISTS last_jed_error TEXT,
+  ADD COLUMN IF NOT EXISTS jed_confirmation_attempts INTEGER DEFAULT 0;
+
+  ALTER TABLE jed_customer_request DROP CONSTRAINT IF EXISTS jed_customer_request_status_check;
+  ALTER TABLE jed_customer_request
+  ADD CONSTRAINT jed_customer_request_status_check
+  CHECK (status IN ('INITIATED', 'PAID', 'CONFIRMED', 'COMPLETED'));
+`;
+
 
 const runMigration = async () => {
   const client = await pool.connect();
@@ -270,6 +282,10 @@ const runMigration = async () => {
   // Ensure vendor columns exist on existing jed_customer_request table (for older DBs)
   await client.query(alterJedTableAddVendorColumns);
   console.log('✅ Ensured vendor columns exist on jed_customer_request');
+
+  // Ensure date_confirmed and last_jed_error columns exist on existing jed_customer_request table (for older DBs)
+  await client.query(alterJedTableAddConfirmedStatus);
+  console.log('✅ Ensured date_confirmed and last_jed_error columns exist on jed_customer_request');
     
     // Commit transaction
     await client.query('COMMIT');

@@ -71,13 +71,9 @@ class JedCustomerRequest {
   static async markPaidByRRR(rrr, webhookPayload = null) {
     const query = `
       UPDATE jed_customer_request
-      SET
-        status = 'PAID',
-        date_paid = NOW(),
-        webhook_data = $2,
-        updated_at = NOW()
-      WHERE rrr = $1
-      RETURNING *
+        SET status = 'PAID', date_paid = NOW(), webhook_data = $2, updated_at = NOW()
+        WHERE rrr = $1 AND status = 'INITIATED'
+        RETURNING *
     `;
 
     const webhookData = webhookPayload ? JSON.stringify(webhookPayload) : null;
@@ -89,6 +85,17 @@ class JedCustomerRequest {
 
     return this.formatRequest(result.rows[0]);
   }
+
+  static async markConfirmedByRRR(rrr) {
+  const query = `
+    UPDATE jed_customer_request
+    SET status = 'CONFIRMED', date_confirmed = NOW(), updated_at = NOW()
+    WHERE rrr = $1 AND status = 'PAID'
+    RETURNING *
+  `;
+  const result = await pool.query(query, [rrr]);
+  return result.rows.length ? this.formatRequest(result.rows[0]) : null;
+}
 
   static async logWebhookPayment(accountNumber, webhookData) {
     const query = `
@@ -144,8 +151,8 @@ class JedCustomerRequest {
         dt_code = $10,
         meter_type = $11,
         pending_since = $12,
-        date_paid = CURRENT_TIMESTAMP,
-        status = 'PAID',
+        date_confirmed = CURRENT_TIMESTAMP,
+        status = 'CONFIRMED',
         payment_source = $13,
         updated_at = CURRENT_TIMESTAMP
       WHERE account_number = $14
@@ -296,7 +303,10 @@ class JedCustomerRequest {
       sealNo: dbRow.seal_no,
       meterNo: dbRow.meter_no,
       datePaid: dbRow.date_paid,
+      dateConfirmed: dbRow.date_confirmed,
       dateCompleted: dbRow.date_completed,
+      lastJedError: dbRow.last_jed_error,
+      jedConfirmationAttempts: dbRow.jed_confirmation_attempts,
       createdAt: dbRow.created_at,
       updatedAt: dbRow.updated_at
     };
@@ -472,6 +482,34 @@ class JedCustomerRequest {
     const result = await pool.query(query);
     return result.rows.map(row => this.formatRequest(row));
   }
+
+  static async findPaidAwaitingJedConfirmation() {
+  const query = `
+    SELECT * FROM jed_customer_request
+    WHERE status = 'PAID'
+    ORDER BY date_paid ASC
+  `;
+  const result = await pool.query(query);
+  return result.rows.map(row => this.formatRequest(row));
+}
+
+static async markJedConfirmationPending(rrr, { lastError, webhookData }) {
+  const query = `
+    UPDATE jed_customer_request
+    SET last_jed_error = $2,
+        jed_confirmation_attempts = jed_confirmation_attempts + 1,
+        webhook_data = COALESCE($3, webhook_data),
+        updated_at = NOW()
+    WHERE rrr = $1
+    RETURNING *
+  `;
+  const result = await pool.query(query, [
+    rrr,
+    typeof lastError === 'string' ? lastError : JSON.stringify(lastError),
+    webhookData ? JSON.stringify(webhookData) : null
+  ]);
+  return result.rows.length ? this.formatRequest(result.rows[0]) : null;
+}
 
 
 }

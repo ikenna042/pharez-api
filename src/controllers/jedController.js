@@ -130,8 +130,8 @@ const confirmPayment = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if already paid
-  if (customerRequest.status === 'PAID' || customerRequest.status === 'COMPLETED') {
+  // Check if already confirmed
+  if (customerRequest.status === 'CONFIRMED' || customerRequest.status === 'COMPLETED') {
     return res.status(400).json({
       success: false,
       message: `Payment already confirmed for account number ${accountNumber}`,
@@ -212,7 +212,11 @@ const completeInstallation = asyncHandler(async (req, res) => {
   }
 
   // Check if payment is confirmed
+<<<<<<< HEAD
+  if (customerRequest.status !== 'CONFIRMED') {
+=======
   if (customerRequest.status !== 'PAID') {
+>>>>>>> 4532013 (Ikenna/dev (#26))
     return res.status(400).json({
       success: false,
       message: `Payment not confirmed for account number ${accountNumber}. Current status: ${customerRequest.status}`
@@ -388,7 +392,7 @@ const getRequestsByStatus = asyncHandler(async (req, res) => {
   const { status } = req.params;
   const { page = 1, limit = 10 } = req.query;
 
-  const validStatuses = ['INITIATED', 'PAID', 'COMPLETED'];
+  const validStatuses = ['INITIATED', 'PAID', 'CONFIRMED', 'COMPLETED'];
   if (!status || !validStatuses.includes(status.toUpperCase())) {
     return res.status(400).json({ success: false, message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
   }
@@ -449,9 +453,15 @@ const checkStatusByOrderId = asyncHandler(async (req, res) => {
 const remitaWebhook = asyncHandler(async (req, res) => {
   // Remita may send JSON array in body; ensure we pass correct payload
   const payload = Array.isArray(req.body) ? req.body : [req.body];
+<<<<<<< HEAD
+  return JedService.handleRemitaWebhook(payload, res);
+  // call test webhook
+  //return JedService.handleRemitaWebhookTest(req, res);
+=======
   // return JedService.handleRemitaWebhook(payload, res);
   // call test webhook
   return JedService.handleRemitaWebhookTest(req, res);
+>>>>>>> 4532013 (Ikenna/dev (#26))
 });
 
 // Manually confirm payment by RRR (admin fallback for missed/failed webhooks)
