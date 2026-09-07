@@ -126,10 +126,10 @@ router.get('/',
  *         name: id
  *         required: true
  *         schema:
- *           type: integer
- *           minimum: 1
+ *           type: string
+ *           format: uuid
  *         description: User ID
- *         example: 1
+ *         example: 3904aad1-2f27-42d1-9c33-fe87502ea594
  *     responses:
  *       200:
  *         description: User details retrieved successfully

@@ -8,6 +8,10 @@ const webhookRoutes = require('./webhookRoutes');
 const apiKeyRoutes = require('./apiKeyRoutes');
 const settingsRoutes = require('./settingsRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
+const discoRoutes = require('./discoRoutes');
+const importRoutes = require('./importRoutes');
+const assignmentRoutes = require('./assignmentRoutes');
+const installationRoutes = require('./installationRoutes');
 
 const router = express.Router();
 
@@ -26,7 +30,11 @@ router.get('/', (req, res) => {
       external: {
         jed: '/external/jed'
       },
-      dashboard: './dashboard-stats'
+      dashboard: './dashboard-stats',
+      discos: '/discos',
+      imports: '/imports',
+      assignments: '/assignments',
+      installations: '/installations'
     },
     documentation: '/api-docs'
   });
@@ -42,4 +50,8 @@ router.use('/external/jed', jedRoutes);
 router.use('/apikeys', apiKeyRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/dashboard-stats', dashboardRoutes);
+router.use('/discos', discoRoutes);
+router.use('/imports', importRoutes);
+router.use('/assignments', assignmentRoutes);
+router.use('/installations', installationRoutes);
 module.exports = router;

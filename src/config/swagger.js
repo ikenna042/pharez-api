@@ -76,9 +76,10 @@ const options = {
           type: 'object',
           properties: {
             id: {
-              type: 'integer',
+              type: 'string',
+              format: 'uuid',
               description: 'User ID',
-              example: 1
+              example: '3904aad1-2f27-42d1-9c33-fe87502ea594'
             },
             firstName: {
               type: 'string',
