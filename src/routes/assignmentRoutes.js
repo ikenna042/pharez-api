@@ -70,6 +70,18 @@ router.post(
  *     tags: [Assignments]
  *     security:
  *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [meterNumbers]
+ *             properties:
+ *               meterNumbers:
+ *                 type: array
+ *                 items: { type: string }
+ *                 example: ["0239110006925"]
  *     responses:
  *       200:
  *         description: Meters returned
@@ -134,6 +146,25 @@ router.post(
  *     tags: [Assignments]
  *     security:
  *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       description: Supply exactly one of ids or accountNumbers.
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [discoCode]
+ *             properties:
+ *               discoCode:
+ *                 type: string
+ *                 example: ABA_POWER
+ *               accountNumbers:
+ *                 type: array
+ *                 items: { type: string }
+ *                 example: ["730352416"]
+ *               ids:
+ *                 type: array
+ *                 items: { type: integer }
  *     responses:
  *       200:
  *         description: Installations unassigned

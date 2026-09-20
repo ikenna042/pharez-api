@@ -60,6 +60,30 @@ router.get(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [discoCode, accountNumber, customerName]
+ *             properties:
+ *               discoCode: { type: string, example: ABA_POWER }
+ *               accountNumber: { type: string, example: "4571086214" }
+ *               customerName: { type: string, example: ISAAC ISAAC }
+ *               customerPhone: { type: string, example: "08149454601" }
+ *               customerEmail: { type: string, format: email }
+ *               customerAddress: { type: string, example: 3 NWACHUKWU STREET, ABA NORTH }
+ *               feederName: { type: string, example: ABA GRA 11KV }
+ *               transformerName: { type: string, example: JOHNSON }
+ *               transformerCode: { type: string }
+ *               region: { type: string }
+ *               area: { type: string }
+ *               meterType:
+ *                 type: string
+ *                 enum: [SINGLE PHASE, THREE PHASE]
+ *               installationPosition: { type: string, example: HIGH WALL }
+ *               meterVendor: { type: string, example: MASTER ENERGY }
  *     responses:
  *       201:
  *         description: Installation request created
@@ -82,6 +106,11 @@ router.post(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: discoCode
+ *         schema: { type: string }
+ *         example: ABA_POWER
  *     responses:
  *       200:
  *         description: Status counts
@@ -102,6 +131,16 @@ router.get(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: discoCode
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Paginated export batches
@@ -122,6 +161,21 @@ router.get(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [ASSIGNED, IN_PROGRESS, INSTALLED, FAILED, EXPORTED]
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: The installer's own jobs
@@ -142,6 +196,18 @@ router.get(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50 }
+ *       - in: query
+ *         name: phaseType
+ *         schema:
+ *           type: string
+ *           enum: [SINGLE PHASE, THREE PHASE]
  *     responses:
  *       200:
  *         description: The installer's assigned meter stock
@@ -206,6 +272,24 @@ router.get(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: discoCode
+ *         required: true
+ *         schema: { type: string }
+ *         example: ABA_POWER
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [exportBatchId]
+ *             properties:
+ *               exportBatchId:
+ *                 type: integer
+ *                 description: id from GET /installations/exports
+ *                 example: 1
  *     responses:
  *       200:
  *         description: Rows marked as exported
@@ -227,6 +311,12 @@ router.post(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 1
  *     responses:
  *       200:
  *         description: Installation started
@@ -253,6 +343,12 @@ router.patch(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 1
  *     requestBody:
  *       required: true
  *       content:
@@ -297,6 +393,24 @@ router.post(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 2
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 minLength: 3
+ *                 example: Customer premises locked, no access on site visit
  *     responses:
  *       200:
  *         description: Failure recorded
@@ -318,6 +432,22 @@ router.post(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 5
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: Customer no longer requires the meter
  *     responses:
  *       200:
  *         description: Installation cancelled
@@ -340,6 +470,12 @@ router.patch(
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 1
  *     responses:
  *       200:
  *         description: Installation request

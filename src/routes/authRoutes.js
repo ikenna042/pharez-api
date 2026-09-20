@@ -315,16 +315,18 @@ router.put('/change-password', authenticate, validate(schemas.changePassword), a
  *     security:
  *       - bearerAuth: []
  *     requestBody:
- *      required: true
- *      content:
- *       application/json:
- *        schema:
- *         type: object
- *        properties:
- *        userId:
- *        type: string
- *       example: 
- *        userId: "123e4567-e89b-12d3-a456-426614174000"
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [userId]
+ *             properties:
+ *               userId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: The user whose password is reset to DEFAULT_PASSWORD
+ *                 example: 3904aad1-2f27-42d1-9c33-fe87502ea594
  *     responses:
  *       200:
  *         description: Password reset successfully
@@ -358,6 +360,6 @@ router.put('/change-password', authenticate, validate(schemas.changePassword), a
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/reset-password', authenticate, authorize(['SUPERADMIN']), authController.resetPassword);
+router.post('/reset-password', authenticate, authorize(['SUPERADMIN']), validate(schemas.resetPassword), authController.resetPassword);
 
 module.exports = router;

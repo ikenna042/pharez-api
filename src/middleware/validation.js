@@ -57,6 +57,11 @@ const validationSchemas = {
     search: Joi.string().max(100).optional().trim()
   }),
 
+  resetPassword: Joi.object({
+    userId: Joi.string().guid({ version: ['uuidv4'] }).required()
+      .messages({ 'string.guid': 'userId must be a valid user id' })
+  }),
+
   // users.id is a UUID (see migrations/001-users-id-to-uuid.js). Anything else
   // must be rejected here: letting it through reaches Postgres as
   // "invalid input syntax for type uuid" and surfaces as a 500 rather than a 400.
@@ -410,7 +415,14 @@ const validationSchemas = {
 
 const validate = (schema) => {
   return (req, res, next) => {
-    const { error, value } = schema.validate(req.body, {
+    // Express 5 leaves req.body undefined when the request carries no body (or
+    // no matching Content-Type), and Joi.object({...}) accepts undefined unless
+    // the whole schema is .required(). Together those let a bodyless POST sail
+    // through validation and blow up in the controller on destructuring.
+    // Treating it as {} makes the required-field rules fire and return a 400.
+    const body = req.body === undefined || req.body === null ? {} : req.body;
+
+    const { error, value } = schema.validate(body, {
       abortEarly: false,
       stripUnknown: true
     });
@@ -418,14 +430,19 @@ const validate = (schema) => {
     if (error) {
       const errors = error.details.map(detail => {
         const field = detail.path.join('.');
-        // Remove quotes and field name from Joi's default message
-        const message = detail.message.replace(/["']/g, '').replace(`${field} `, '');
+        // Strip the quotes Joi puts around the field name. Object-level rules
+        // (min/xor and friends) report an empty path, and blindly replacing
+        // `${field} ` then ate the first space of the message itself, turning
+        // '"value" must have at least 1 key' into ' valuemust have at least 1 key'.
+        const cleaned = detail.message.replace(/["']/g, '');
+        const message = field ? cleaned.replace(`${field} `, '') : cleaned;
         return { field, message };
       });
 
       return res.status(400).json({
         success: false,
-        message: 'Validation failed: ' + errors.map(e => `${e.field} ${e.message}`).join(', '),
+        message: 'Validation failed: ' +
+          errors.map(e => (e.field ? `${e.field} ${e.message}` : e.message)).join(', '),
       });
     }
 

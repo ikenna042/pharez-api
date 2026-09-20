@@ -126,6 +126,27 @@ router.get(
  *         name: code
  *         required: true
  *         schema: { type: string }
+ *         example: ABA_POWER
+ *     requestBody:
+ *       required: true
+ *       description: At least one field must be supplied.
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             minProperties: 1
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: Aba Power Limited Electric
+ *               integrationMode:
+ *                 type: string
+ *                 enum: [OFFLINE, API]
+ *               contactEmail:
+ *                 type: string
+ *                 format: email
+ *               isActive:
+ *                 type: boolean
  *     responses:
  *       200:
  *         description: Disco updated
@@ -158,6 +179,43 @@ router.patch(
  *         name: code
  *         required: true
  *         schema: { type: string }
+ *         example: ABA_POWER
+ *     requestBody:
+ *       required: true
+ *       description: >
+ *         REPLACES the entire mapping. Anything you leave out is dropped, so fetch
+ *         GET /discos/{code} first and edit what it returns. The prefilled example
+ *         is the full current default, so executing it as-is is a safe restore.
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties:
+ *               type: object
+ *               required: [keyField, fields]
+ *               properties:
+ *                 sheetIndex: { type: integer, default: 0 }
+ *                 headerRow: { type: integer, default: 1 }
+ *                 keyField: { type: string, example: accountNumber }
+ *                 captureExtras: { type: boolean, default: false }
+ *                 fields:
+ *                   type: object
+ *                   additionalProperties:
+ *                     type: object
+ *                     required: [headers]
+ *                     properties:
+ *                       headers:
+ *                         type: array
+ *                         items: { type: string }
+ *                       required: { type: boolean }
+ *                       transform:
+ *                         type: string
+ *                         enum: [trim, upper, text, number, ngPhone, phase, date]
+ *                       keepRaw: { type: boolean }
+ *                       padStart: { type: integer }
+ *           examples:
+ *             abaPower:
+ *               $ref: '#/components/examples/AbaPowerImportMapping'
  *     responses:
  *       200:
  *         description: Import mapping updated
@@ -187,6 +245,38 @@ router.put(
  *         name: code
  *         required: true
  *         schema: { type: string }
+ *         example: ABA_POWER
+ *     requestBody:
+ *       required: true
+ *       description: >
+ *         REPLACES the entire template; anything omitted is dropped. Column order
+ *         here is the column order in the generated sheet. The prefilled example is
+ *         the full current default, so executing it as-is is a safe restore.
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties:
+ *               type: object
+ *               required: [columns]
+ *               properties:
+ *                 sheetName: { type: string, example: Installations }
+ *                 fileNamePrefix: { type: string, example: aba_power_installations }
+ *                 columns:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     required: [header, source]
+ *                     properties:
+ *                       header: { type: string, example: Meter Number }
+ *                       source: { type: string, example: meterNumber }
+ *                       format:
+ *                         type: string
+ *                         enum: [text, number, date, datetime]
+ *                       width: { type: integer, example: 18 }
+ *           examples:
+ *             abaPower:
+ *               $ref: '#/components/examples/AbaPowerExportTemplate'
  *     responses:
  *       200:
  *         description: Export template updated

@@ -21,6 +21,16 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Express 5 leaves req.body undefined when a request carries no body, or a
+// Content-Type no parser claims. Controllers destructure req.body directly, so
+// that surfaces as a 500 ("Cannot destructure property ... of req.body") on what
+// is really a client mistake. Normalising to {} lets validation reject it as a
+// 400 instead, and keeps unvalidated handlers from crashing outright.
+app.use((req, res, next) => {
+  if (req.body === undefined || req.body === null) req.body = {};
+  next();
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
