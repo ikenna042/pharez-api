@@ -182,6 +182,242 @@ class Meter {
     }
   }
 
+  /**
+   * Bulk insert from a disco-mapped inventory sheet.
+   *
+   * Deliberately not reusing bulkCreate above: that method does a SELECT then an
+   * INSERT per row, which is ~12,000 round trips for the 6,167-row Aba inventory,
+   * and its single transaction has no savepoints, so one real SQL error would
+   * abort every later statement (Postgres 25P02).
+   *
+   * Here each chunk is savepointed and ON CONFLICT lets an already-known serial
+   * count as skipped rather than as an error. Must be given an open transaction.
+   */
+  static async bulkCreateFromImport(rows, { client, uploadedBy = null, importBatchId = null }) {
+    const columns = [
+      'meter_number', 'sim_number', 'manufactured_date', 'meter_make', 'model',
+      'phase_type', 'phase_type_raw', 'sgc_number', 'status', 'uploaded_by', 'import_batch_id'
+    ];
+
+    const created = [];
+    const skipped = [];
+    const errors = [];
+    const CHUNK_SIZE = 500;
+
+    const toParams = (row) => [
+      row.meterNumber,
+      row.simNumber ?? null,
+      row.manufacturedDate ?? null,
+      row.meterMake ?? null,
+      row.model ?? null,
+      row.phaseType ?? null,
+      row.phaseTypeRaw ?? null,
+      row.sgcNumber ?? null,
+      'AVAILABLE',
+      uploadedBy,
+      importBatchId
+    ];
+
+    const insertChunk = async (chunk, offset) => {
+      const params = [];
+      const tuples = chunk.map((row) => {
+        const values = toParams(row);
+        const placeholders = values.map((_, i) => `$${params.length + i + 1}`);
+        params.push(...values);
+        return `(${placeholders.join(', ')})`;
+      });
+
+      const result = await client.query(
+        `INSERT INTO meters (${columns.join(', ')})
+         VALUES ${tuples.join(', ')}
+         ON CONFLICT (meter_number) DO NOTHING
+         RETURNING meter_number`,
+        params
+      );
+
+      const landed = new Set(result.rows.map((r) => r.meter_number));
+      chunk.forEach((row, i) => {
+        if (landed.has(row.meterNumber)) {
+          created.push(row.meterNumber);
+        } else {
+          skipped.push({
+            row: row.sourceRowNumber ?? offset + i + 1,
+            meterNumber: row.meterNumber,
+            reason: 'Meter already exists'
+          });
+        }
+      });
+    };
+
+    for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
+      const chunk = rows.slice(start, start + CHUNK_SIZE);
+      const savepoint = `meter_chunk_${start}`;
+
+      await client.query(`SAVEPOINT ${savepoint}`);
+      try {
+        await insertChunk(chunk, start);
+        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+      } catch (chunkError) {
+        await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+
+        // A chunk can fail for a row-specific reason (bad data in one row) or a
+        // systematic one (malformed SQL, missing column). Retrying row by row is
+        // right for the first and pathological for the second: 6,000 rows x a
+        // round trip each is hours of work to reach the same conclusion. So if the
+        // first few rows all fail identically, treat it as systematic and stop.
+        const SYSTEMATIC_THRESHOLD = 5;
+        let consecutiveIdentical = 0;
+        let lastMessage = null;
+        let systematic = false;
+
+        for (let i = 0; i < chunk.length; i++) {
+          if (systematic) {
+            errors.push({
+              row: chunk[i].sourceRowNumber ?? start + i + 1,
+              meterNumber: chunk[i].meterNumber,
+              error: lastMessage
+            });
+            continue;
+          }
+
+          const rowSavepoint = `meter_row_${start}_${i}`;
+          await client.query(`SAVEPOINT ${rowSavepoint}`);
+          try {
+            await insertChunk([chunk[i]], start + i);
+            await client.query(`RELEASE SAVEPOINT ${rowSavepoint}`);
+          } catch (rowError) {
+            await client.query(`ROLLBACK TO SAVEPOINT ${rowSavepoint}`);
+            await client.query(`RELEASE SAVEPOINT ${rowSavepoint}`);
+            errors.push({
+              row: chunk[i].sourceRowNumber ?? start + i + 1,
+              meterNumber: chunk[i].meterNumber,
+              error: rowError.message
+            });
+
+            consecutiveIdentical = rowError.message === lastMessage ? consecutiveIdentical + 1 : 1;
+            lastMessage = rowError.message;
+            if (consecutiveIdentical >= SYSTEMATIC_THRESHOLD) systematic = true;
+          }
+        }
+      }
+    }
+
+    return { created, skipped, errors };
+  }
+
+  /**
+   * Hand meters to an installer.
+   *
+   * Deliberately does NOT touch meters.status: JED gates installations on
+   * status === 'AVAILABLE', so changing it here would silently start rejecting
+   * JED work for any meter an Aba supervisor had assigned. Holder state lives in
+   * assignment_status, which JED never reads.
+   *
+   * The WHERE clause is the guard: only unassigned, available meters move, so a
+   * meter already out with someone else is simply not returned.
+   */
+  static async assignToInstaller(client, { meterIds, batchId, installerId }) {
+    const result = await client.query(
+      `UPDATE meters
+       SET assignment_status = 'ASSIGNED',
+           assigned_to = $1,
+           assigned_at = CURRENT_TIMESTAMP,
+           assignment_batch_id = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ANY($3::int[])
+         AND assignment_status = 'UNASSIGNED'
+         AND status = 'AVAILABLE'
+       RETURNING id, meter_number`,
+      [installerId, batchId, meterIds]
+    );
+
+    return result.rows.map((r) => ({ id: r.id, meterNumber: r.meter_number }));
+  }
+
+  /** Return meters to stock. Only currently-assigned meters move. */
+  static async releaseAssignment(client, meterIds) {
+    const result = await client.query(
+      `UPDATE meters
+       SET assignment_status = 'UNASSIGNED',
+           assigned_to = NULL,
+           assigned_at = NULL,
+           assignment_batch_id = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ANY($1::int[])
+         AND assignment_status = 'ASSIGNED'
+       RETURNING id, meter_number`,
+      [meterIds]
+    );
+
+    return result.rows.map((r) => ({ id: r.id, meterNumber: r.meter_number }));
+  }
+
+  /**
+   * Consume a meter on a completed installation. This is the one place the new
+   * flow writes meters.status, and it writes the same 'INSTALLED' value the JED
+   * flow already writes via updateStatus.
+   */
+  static async markUsedOnInstallation(client, meterId, installationRequestId) {
+    const result = await client.query(
+      `UPDATE meters
+       SET assignment_status = 'USED',
+           status = 'INSTALLED',
+           installed_at = CURRENT_TIMESTAMP,
+           installation_request_id = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+         AND assignment_status = 'ASSIGNED'
+       RETURNING *`,
+      [installationRequestId, meterId]
+    );
+
+    return result.rows.length === 0 ? null : this.formatMeter(result.rows[0]);
+  }
+
+  /** Look up many meters by serial. `forUpdate` locks them for the caller's transaction. */
+  static async findManyByNumbers(meterNumbers, { client = pool, forUpdate = false } = {}) {
+    const result = await client.query(
+      `SELECT * FROM meters WHERE meter_number = ANY($1::varchar[])${forUpdate ? ' FOR UPDATE' : ''}`,
+      [meterNumbers]
+    );
+
+    return result.rows.map((row) => this.formatMeter(row));
+  }
+
+  /** The meters currently in one installer's hands. */
+  static async findAssignedToInstaller(installerId, { page = 1, limit = 50, phaseType } = {}) {
+    const params = [installerId];
+    let where = `WHERE assigned_to = $1 AND assignment_status = 'ASSIGNED'`;
+
+    if (phaseType) {
+      params.push(phaseType);
+      where += ` AND phase_type = $${params.length}`;
+    }
+
+    const countResult = await pool.query(`SELECT COUNT(*) FROM meters ${where}`, params);
+    const totalCount = parseInt(countResult.rows[0].count, 10);
+
+    const offset = (page - 1) * limit;
+    const result = await pool.query(
+      `SELECT * FROM meters ${where} ORDER BY meter_number ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      meters: result.rows.map((row) => this.formatMeter(row)),
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalCount,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    };
+  }
+
   static async updateStatus(meterNumber, status, installedAt = null) {
     let query = `
       UPDATE meters
@@ -278,6 +514,16 @@ class Meter {
       phaseType: dbRow.phase_type,
       sgcNumber: dbRow.sgc_number,
       status: dbRow.status,
+      // Assignment state is separate from status on purpose: JED gates on
+      // status === 'AVAILABLE', so handing a meter to an installer must not
+      // change status. These keys are additive; nothing existing reads them.
+      assignmentStatus: dbRow.assignment_status,
+      assignedTo: dbRow.assigned_to,
+      assignedAt: dbRow.assigned_at,
+      assignmentBatchId: dbRow.assignment_batch_id,
+      installationRequestId: dbRow.installation_request_id,
+      phaseTypeRaw: dbRow.phase_type_raw,
+      importBatchId: dbRow.import_batch_id,
       uploadedBy: dbRow.uploaded_by,
       uploadedAt: dbRow.uploaded_at,
       installedAt: dbRow.installed_at,

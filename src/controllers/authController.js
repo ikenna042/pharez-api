@@ -177,7 +177,17 @@ const resetPassword = asyncHandler(async (req, res) => {
     });
   }
 
-  await User.updatePassword(userId, process.env.DEFAULT_PASSWORD);
+  // updatePassword reports whether a row actually matched. Ignoring it meant an
+  // unknown or inactive userId still answered "reset successfully" while nothing
+  // had changed.
+  const wasReset = await User.updatePassword(userId, process.env.DEFAULT_PASSWORD);
+
+  if (!wasReset) {
+    return res.status(404).json({
+      success: false,
+      message: 'No active user found for that userId'
+    });
+  }
 
   res.json({
     success: true,

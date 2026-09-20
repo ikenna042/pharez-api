@@ -75,3 +75,6 @@ Thumbs.db
 *.swp
 *.swo
 *~.env
+
+# Local database snapshots taken before migrations
+backups/

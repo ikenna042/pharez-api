@@ -1,4 +1,5 @@
 const swaggerJSDoc = require('swagger-jsdoc');
+const { ABA_POWER_IMPORT_MAPPING, ABA_POWER_EXPORT_TEMPLATE } = require('./discoDefaults');
 const swaggerUi = require('swagger-ui-express');
 
 const options = {
@@ -56,6 +57,21 @@ const options = {
       }
     ],
     components: {
+      // Sourced from the same module that seeds the discos table, so the example
+      // shown in the docs is always the live default rather than a hand-written
+      // excerpt. This matters because both PUT endpoints replace the mapping
+      // wholesale: pressing Execute on a partial example would truncate the
+      // disco's real configuration.
+      examples: {
+        AbaPowerImportMapping: {
+          summary: 'Aba Power import mapping (complete)',
+          value: ABA_POWER_IMPORT_MAPPING
+        },
+        AbaPowerExportTemplate: {
+          summary: 'Aba Power export template (complete)',
+          value: ABA_POWER_EXPORT_TEMPLATE
+        }
+      },
       securitySchemes: {
         bearerAuth: {
           type: 'http',
@@ -76,9 +92,10 @@ const options = {
           type: 'object',
           properties: {
             id: {
-              type: 'integer',
+              type: 'string',
+              format: 'uuid',
               description: 'User ID',
-              example: 1
+              example: '3904aad1-2f27-42d1-9c33-fe87502ea594'
             },
             firstName: {
               type: 'string',
