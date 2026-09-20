@@ -36,6 +36,22 @@ const INSERT_COLUMNS = [
 
 const CHUNK_SIZE = 500;
 
+/**
+ * Render a DATE column as YYYY-MM-DD using its LOCAL calendar parts.
+ *
+ * node-postgres hands back a DATE as local midnight, so the default JSON
+ * serialisation turns 2026-09-07 into "2026-09-06T23:00:00.000Z" in WAT (+01:00)
+ * and any client doing .slice(0, 10) reads the wrong day. installation_date has
+ * no time component to begin with, so a plain date string is the honest shape.
+ */
+const formatDateOnly = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+};
+
 class InstallationRequest {
   static get ALLOWED_FROM() {
     return ALLOWED_FROM;
@@ -528,7 +544,7 @@ class InstallationRequest {
       meterId: row.meter_id,
       meterNumber: row.meter_number,
       sealNumber: row.seal_number,
-      installationDate: row.installation_date,
+      installationDate: formatDateOnly(row.installation_date),
       latitude: row.latitude === null || row.latitude === undefined ? null : parseFloat(row.latitude),
       longitude: row.longitude === null || row.longitude === undefined ? null : parseFloat(row.longitude),
       installationPhotoUrl: row.installation_photo_url,

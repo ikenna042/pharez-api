@@ -78,3 +78,6 @@ Thumbs.db
 
 # Local database snapshots taken before migrations
 backups/
+
+# docs
+docs/
