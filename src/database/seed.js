@@ -57,7 +57,24 @@ const seedUsers = async () => {
     ]);
     
     console.log('✅ Admin created:', adminResult.rows[0]);
-    
+
+    // Create sample supervisor
+    const supervisorPassword = await bcrypt.hash(process.env.DEFAULT_PASSWORD, 12);
+
+    const supervisorResult = await client.query(insertSuperAdmin, [
+      'Sarah',
+      'Supervisor',
+      'SUPERVISOR',
+      '10203040506',
+      '08045678901',
+      'supervisor@pharezapi.com',
+      supervisorPassword,
+      '789 Supervisor Close, Enugu, Nigeria',
+      'PharezAPI Branch, Independence Layout, Enugu'
+    ]);
+
+    console.log('✅ Supervisor created:', supervisorResult.rows[0]);
+
     // Create sample installer
     const installerPassword = await bcrypt.hash(process.env.DEFAULT_PASSWORD, 12);
 
@@ -79,6 +96,7 @@ const seedUsers = async () => {
     console.log('\n📋 Default Login Credentials:');
     console.log('SUPERADMIN - Phone: 08012345678, Password: ' + process.env.DEFAULT_PASSWORD);
     console.log('ADMIN - Phone: 08023456789, Password: ' + process.env.DEFAULT_PASSWORD);
+    console.log('SUPERVISOR - Phone: 08045678901, Password: ' + process.env.DEFAULT_PASSWORD);
     console.log('INSTALLER - Phone: 08034567890, Password: ' + process.env.DEFAULT_PASSWORD);
 
     // Seed meter types if not present

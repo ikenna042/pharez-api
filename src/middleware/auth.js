@@ -84,6 +84,11 @@ const checkOwnership = (req, res, next) => {
     return next(); // Let the controller handle the specific logic
   }
 
+  // SUPERVISOR can look up installers or itself; let the controller decide which.
+  if (userRole === 'SUPERVISOR') {
+    return next();
+  }
+
   // INSTALLER can only access their own data
   if (userRole === 'INSTALLER' && requestedUserId === currentUserId) {
     return next();

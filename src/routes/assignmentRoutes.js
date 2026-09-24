@@ -56,7 +56,7 @@ const router = express.Router();
 router.post(
   '/meters',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validate(schemas.assignMeters),
   assignmentController.assignMeters
 );
@@ -89,7 +89,7 @@ router.post(
 router.post(
   '/meters/return',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validate(schemas.returnMeters),
   assignmentController.returnMeters
 );
@@ -133,7 +133,7 @@ router.post(
 router.post(
   '/installations',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validate(schemas.assignInstallations),
   assignmentController.assignInstallations
 );
@@ -172,7 +172,7 @@ router.post(
 router.post(
   '/installations/unassign',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validate(schemas.unassignInstallations),
   assignmentController.unassignInstallations
 );
@@ -205,7 +205,7 @@ router.post(
 router.get(
   '/',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateQuery(schemas.getAssignmentBatchesQuery),
   assignmentController.listAssignmentBatches
 );
@@ -233,7 +233,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateParams(schemas.idParam),
   assignmentController.getAssignmentBatch
 );

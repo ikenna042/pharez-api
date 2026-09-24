@@ -33,7 +33,7 @@ class Meter {
   }
 
   static async findAll(options = {}) {
-    const { page = 1, limit = 10, status, phaseType } = options;
+    const { page = 1, limit = 10, status, phaseType, search } = options;
     const offset = (page - 1) * limit;
 
     let query = 'SELECT * FROM meters WHERE 1=1';
@@ -50,6 +50,12 @@ class Meter {
       paramCount++;
         query += ` AND phase_type = $${paramCount}`;
       queryParams.push(phaseType);
+    }
+
+    if (search) {
+      paramCount++;
+      query += ` AND (meter_number ILIKE $${paramCount} OR sim_number ILIKE $${paramCount})`;
+      queryParams.push(`%${search}%`);
     }
 
       query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
@@ -72,6 +78,12 @@ class Meter {
       countParamCount++;
         countQuery += ` AND phase_type = $${countParamCount}`;
       countParams.push(phaseType);
+    }
+
+    if (search) {
+      countParamCount++;
+      countQuery += ` AND (meter_number ILIKE $${countParamCount} OR sim_number ILIKE $${countParamCount})`;
+      countParams.push(`%${search}%`);
     }
 
     const countResult = await pool.query(countQuery, countParams);

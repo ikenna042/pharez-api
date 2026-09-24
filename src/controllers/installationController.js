@@ -69,6 +69,23 @@ const getInstallations = asyncHandler(async (req, res) => {
   res.json({ success: true, data: requests, pagination });
 });
 
+const searchInstallations = asyncHandler(async (req, res) => {
+  const q = req.validatedQuery || req.query;
+
+  const discoId = await resolveDiscoId(res, q.discoCode);
+  if (discoId === null) return;
+
+  const { requests, pagination } = await InstallationRequest.findAll({
+    page: Number(q.page || 1),
+    limit: Number(q.limit || 20),
+    discoId,
+    status: q.status,
+    search: q.q
+  });
+
+  res.json({ success: true, data: requests, pagination });
+});
+
 const getInstallationStatistics = asyncHandler(async (req, res) => {
   const q = req.validatedQuery || req.query;
 
@@ -305,6 +322,7 @@ const markExportSent = asyncHandler(async (req, res) => {
 module.exports = {
   createInstallationRequest,
   getInstallations,
+  searchInstallations,
   getInstallationStatistics,
   getInstallationById,
   cancelInstallation,

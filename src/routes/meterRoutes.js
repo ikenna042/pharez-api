@@ -214,7 +214,7 @@ router.get('/export', authenticate, authorize('SUPERADMIN', 'ADMIN'), meterContr
  *       401:
  *         description: Authentication required
  */
-router.get('/', authenticate, authorize('SUPERADMIN', 'ADMIN', 'INSTALLER'), meterController.getMeters);
+router.get('/', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'INSTALLER', 'SUPERVISOR']), meterController.getMeters);
 
 /**
  * @swagger
@@ -266,6 +266,43 @@ router.get('/statistics', authenticate, authorize('SUPERADMIN', 'ADMIN'), meterC
 
 /**
  * @swagger
+ * /meters/search:
+ *   get:
+ *     summary: Search meters by meter number or SIM number
+ *     description: >
+ *       Matches q as a substring across meter_number and sim_number. Backed by
+ *       a GIN trigram index so it stays fast as inventory grows into the
+ *       thousands. Registered before /:id so this literal path isn't
+ *       swallowed by the id matcher.
+ *     tags: [Meters]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         example: "0239110006909"
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [AVAILABLE, INSTALLED, FAULTY, RETIRED] }
+ *       - in: query
+ *         name: phaseType
+ *         schema: { type: string, enum: [SINGLE PHASE, THREE PHASE] }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Paginated matches
+ */
+router.get('/search', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'INSTALLER', 'SUPERVISOR']), validateQuery(schemas.meterSearchQuery), meterController.searchMeters);
+
+/**
+ * @swagger
  * /meters/{id}:
  *   get:
  *     summary: Get meter by ID
@@ -286,7 +323,7 @@ router.get('/statistics', authenticate, authorize('SUPERADMIN', 'ADMIN'), meterC
  *       401:
  *         description: Authentication required
  */
-router.get('/:id', authenticate, authorize('SUPERADMIN', 'ADMIN', 'INSTALLER'), meterController.getMeterById);
+router.get('/:id', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'INSTALLER', 'SUPERVISOR']), meterController.getMeterById);
 
 /**
  * @swagger
@@ -310,7 +347,7 @@ router.get('/:id', authenticate, authorize('SUPERADMIN', 'ADMIN', 'INSTALLER'), 
  *       401:
  *         description: Authentication required
  */
-router.get('/meter-number/:meterNumber', authenticate, authorize('SUPERADMIN', 'ADMIN', 'INSTALLER'), meterController.getMeterByMeterNumber);
+router.get('/meter-number/:meterNumber', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'INSTALLER', 'SUPERVISOR']), meterController.getMeterByMeterNumber);
 
 /**
  * @swagger

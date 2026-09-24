@@ -42,17 +42,21 @@ class User {
     return this.formatUser(result.rows[0]);
   }
 
-  static async findById(id) {
+  // includeInactive defaults to false so every existing caller -- most
+  // importantly authenticate() re-verifying a user on each request -- keeps
+  // rejecting a deactivated account exactly as before. Only an admin
+  // explicitly looking up a suspended user (e.g. to restore them) passes true.
+  static async findById(id, includeInactive = false) {
     const query = `
       SELECT id, first_name, last_name, role, nin, phone, email,
-             home_address, office_address, is_active, is_phone_verified, 
+             home_address, office_address, is_active, is_phone_verified,
              is_email_verified, created_at, updated_at
       FROM users
-      WHERE id = $1 AND is_active = true
+      WHERE id = $1 ${includeInactive ? '' : 'AND is_active = true'}
     `;
 
     const result = await pool.query(query, [id]);
-    
+
     if (result.rows.length === 0) {
       return null;
     }
@@ -117,16 +121,20 @@ class User {
     return this.formatUser(result.rows[0]);
   }
 
+  // includeInactive lets an admin browse suspended/soft-deleted accounts --
+  // without it, a suspended user is otherwise unfindable through the API
+  // (findById also defaults to excluding them), so there'd be no way to look
+  // one up again in order to restore them.
   static async findAll(options = {}) {
-    const { page = 1, limit = 10, role, search } = options;
+    const { page = 1, limit = 10, role, search, includeInactive = false } = options;
     const offset = (page - 1) * limit;
 
     let query = `
       SELECT id, first_name, last_name, role, nin, phone, email,
-             home_address, office_address, is_active, is_phone_verified, 
+             home_address, office_address, is_active, is_phone_verified,
              is_email_verified, created_at, updated_at
       FROM users
-      WHERE is_active = true
+      WHERE 1=1 ${includeInactive ? '' : 'AND is_active = true'}
     `;
 
     const queryParams = [];
@@ -154,7 +162,7 @@ class User {
 
     const result = await pool.query(query, queryParams);
 
-    let countQuery = 'SELECT COUNT(*) FROM users WHERE is_active = true';
+    let countQuery = `SELECT COUNT(*) FROM users WHERE 1=1 ${includeInactive ? '' : 'AND is_active = true'}`;
     const countParams = [];
     let countParamCount = 0;
 

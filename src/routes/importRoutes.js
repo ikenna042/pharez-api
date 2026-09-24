@@ -208,4 +208,38 @@ router.get(
   importController.getImportBatch
 );
 
+/**
+ * @swagger
+ * /imports/{id}/undo:
+ *   post:
+ *     summary: Remove the rows this import created, where nothing real depends on them yet
+ *     description: >
+ *       For a pending-installations batch, deletes rows still PENDING, ASSIGNED,
+ *       FAILED or CANCELLED; rows that are INSTALLED, EXPORTED or IN_PROGRESS are
+ *       left alone and counted as skipped. For a meter-inventory batch, deletes
+ *       meters still UNASSIGNED and not used by any installation; assigned or
+ *       installed meters are left alone. One transaction, safe to call more than
+ *       once -- a second call simply finds nothing left to remove.
+ *     tags: [Imports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Undo result, including how many rows were skipped and why
+ *       404:
+ *         description: Import batch not found
+ */
+router.post(
+  '/:id/undo',
+  authenticate,
+  authorize(['SUPERADMIN', 'ADMIN']),
+  validateParams(schemas.idParam),
+  importController.undoImportBatch
+);
+
 module.exports = router;

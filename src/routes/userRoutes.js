@@ -106,11 +106,56 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/', 
-  authenticate, 
-  authorize('SUPERADMIN', 'ADMIN'), 
-  validateQuery(schemas.getUsersQuery), 
+router.get('/',
+  authenticate,
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
+  validateQuery(schemas.getUsersQuery),
   userController.getUsers
+);
+
+/**
+ * @swagger
+ * /users/search:
+ *   get:
+ *     summary: Search users by name, email or phone
+ *     description: >
+ *       Matches q as a substring across first name, last name, email and
+ *       phone. Backed by a GIN trigram index, so it stays fast as the user
+ *       list grows. Registered before /:id so this literal path isn't
+ *       swallowed by the id matcher.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         example: mike
+ *       - in: query
+ *         name: role
+ *         schema: { type: string, enum: [SUPERADMIN, ADMIN, INSTALLER] }
+ *       - in: query
+ *         name: includeInactive
+ *         description: Include suspended/soft-deleted accounts in the results.
+ *         schema: { type: boolean, default: false }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Paginated matches
+ *       403:
+ *         description: Installers cannot search users
+ */
+router.get('/search',
+  authenticate,
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
+  validateQuery(schemas.userSearchQuery),
+  userController.searchUsers
 );
 
 /**
@@ -418,11 +463,40 @@ router.put('/:id',
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.delete('/:id', 
-  authenticate, 
-  authorize('SUPERADMIN', 'ADMIN'), 
-  validateParams(schemas.userId), 
+router.delete('/:id',
+  authenticate,
+  authorize('SUPERADMIN', 'ADMIN'),
+  validateParams(schemas.userId),
   userController.deleteUser
+);
+
+/**
+ * @swagger
+ * /users/{id}/restore:
+ *   post:
+ *     summary: Restore a suspended/soft-deleted user
+ *     description: Reverses DELETE /users/:id -- sets is_active back to true so the account can log in again.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: User restored
+ *       400:
+ *         description: User is not currently deactivated
+ *       404:
+ *         description: User not found
+ */
+router.post('/:id/restore',
+  authenticate,
+  authorize(['SUPERADMIN', 'ADMIN']),
+  validateParams(schemas.userId),
+  userController.restoreUser
 );
 
 module.exports = router;

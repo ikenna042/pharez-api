@@ -29,11 +29,29 @@ const getUsers = asyncHandler(async (req, res) => {
     }
   }
 
+  // SUPERVISOR is scoped to installations/assignments, so it may only browse
+  // the installer roster (plus itself), never ADMIN/SUPERADMIN/other SUPERVISORs.
+  if (currentUser.role === 'SUPERVISOR') {
+    if (role && role !== 'INSTALLER') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+    queryOptions.role = 'INSTALLER';
+  }
+
   const result = await User.findAll(queryOptions);
 
   // For ADMIN, filter out other ADMINs and SUPERADMINs (except themselves)
   if (currentUser.role === 'ADMIN') {
-    result.users = result.users.filter(user => 
+    result.users = result.users.filter(user =>
+      user.role === 'INSTALLER' || user.id === currentUser.id
+    );
+  }
+
+  if (currentUser.role === 'SUPERVISOR') {
+    result.users = result.users.filter(user =>
       user.role === 'INSTALLER' || user.id === currentUser.id
     );
   }
@@ -75,6 +93,14 @@ const getUserById = asyncHandler(async (req, res) => {
         message: 'Access denied'
       });
     }
+  }
+
+  // SUPERVISOR may only look up installers (to assign work) or itself.
+  if (currentUser.role === 'SUPERVISOR' && user.role !== 'INSTALLER' && user.id !== currentUser.id) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied'
+    });
   }
 
   res.json({
@@ -174,7 +200,7 @@ const updateUser = asyncHandler(async (req, res) => {
     });
   }
 
-  if (currentUser.role === 'INSTALLER') {
+  if (currentUser.role === 'INSTALLER' || currentUser.role === 'SUPERVISOR') {
     if (currentUser.id !== targetUserId) {
       return res.status(403).json({
         success: false,
@@ -256,7 +282,13 @@ const deleteUser = asyncHandler(async (req, res) => {
     }
   }
 
-  const deleted = await User.deleteById(targetUserId);
+  // Soft delete: sets is_active = false. The user's own historical records
+  // (installations, meter uploads, assignments) reference them by id via a
+  // plain JOIN with no is_active filter, so their name keeps showing up on
+  // that old work after this runs -- only login and the default listings stop
+  // seeing them. (This previously called User.deleteById, a method that never
+  // existed on the model, so this endpoint 500'd on every call.)
+  const deleted = await User.softDeleteById(targetUserId);
 
   if (!deleted) {
     return res.status(404).json({
@@ -271,10 +303,121 @@ const deleteUser = asyncHandler(async (req, res) => {
   });
 });
 
+// Reverses deleteUser/softDeleteById. Same access rule as delete: an ADMIN
+// may only act on INSTALLER accounts, never on another ADMIN or SUPERADMIN.
+const restoreUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const currentUser = req.user;
+
+  if (currentUser.role === 'INSTALLER') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied'
+    });
+  }
+
+  // includeInactive: true because the whole point is finding a currently
+  // deactivated user -- the default findById would never see them.
+  const targetUser = await User.findById(id, true);
+  if (!targetUser) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found'
+    });
+  }
+
+  if (currentUser.role === 'ADMIN' && targetUser.role !== 'INSTALLER') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied'
+    });
+  }
+
+  const restored = await User.undoSoftDeleteById(id);
+
+  if (!restored) {
+    return res.status(400).json({
+      success: false,
+      message: 'User is not currently deactivated'
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'User restored successfully',
+    data: await User.findById(id)
+  });
+});
+
+const searchUsers = asyncHandler(async (req, res) => {
+  const q = req.validatedQuery || req.query;
+  const currentUser = req.user;
+
+  if (currentUser.role === 'INSTALLER') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied'
+    });
+  }
+
+  const queryOptions = {
+    page: q.page,
+    limit: q.limit,
+    role: q.role,
+    search: q.q,
+    includeInactive: q.includeInactive
+  };
+
+  // Same visibility rule as the ordinary list endpoint: an ADMIN only browses
+  // installers (plus themselves), never peers or superadmins.
+  if (currentUser.role === 'ADMIN') {
+    if (q.role && !['INSTALLER', 'ADMIN'].includes(q.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+    if (!q.role) queryOptions.role = 'INSTALLER';
+  }
+
+  // SUPERVISOR is scoped to installations/assignments: installer roster only.
+  if (currentUser.role === 'SUPERVISOR') {
+    if (q.role && q.role !== 'INSTALLER') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+    queryOptions.role = 'INSTALLER';
+  }
+
+  const result = await User.findAll(queryOptions);
+
+  if (currentUser.role === 'ADMIN') {
+    result.users = result.users.filter(user =>
+      user.role === 'INSTALLER' || user.id === currentUser.id
+    );
+  }
+
+  if (currentUser.role === 'SUPERVISOR') {
+    result.users = result.users.filter(user =>
+      user.role === 'INSTALLER' || user.id === currentUser.id
+    );
+  }
+
+  res.json({
+    success: true,
+    data: result.users,
+    pagination: result.pagination
+  });
+});
+
 module.exports = {
   getUsers,
   getUserById,
   createUser,
   updateUser,
-  deleteUser
+  deleteUser,
+  restoreUser,
+  searchUsers
 };

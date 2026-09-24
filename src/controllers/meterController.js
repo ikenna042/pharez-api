@@ -74,6 +74,24 @@ const getMeters = asyncHandler(async (req, res) => {
   });
 });
 
+const searchMeters = asyncHandler(async (req, res) => {
+  const q = req.validatedQuery || req.query;
+
+  const result = await Meter.findAll({
+    page: q.page,
+    limit: q.limit,
+    status: q.status,
+    phaseType: q.phaseType,
+    search: q.q
+  });
+
+  res.json({
+    success: true,
+    data: result.meters,
+    pagination: result.pagination
+  });
+});
+
 const getMeterById = asyncHandler(async (req, res) => {
   console.log('Fetching meter by ID:', req.params);
   const { id } = req.params;
@@ -169,6 +187,7 @@ module.exports = {
   downloadMeterTemplate,
   exportMeters,
   getMeters,
+  searchMeters,
   getMeterById,
   getMeterByMeterNumber,
   getMeterStatistics,
