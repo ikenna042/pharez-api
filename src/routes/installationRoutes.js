@@ -47,7 +47,7 @@ const router = express.Router();
 router.get(
   '/',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateQuery(schemas.getInstallationsQuery),
   installationController.getInstallations
 );
@@ -93,7 +93,7 @@ router.get(
 router.post(
   '/',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validate(schemas.createInstallationRequest),
   installationController.createInstallationRequest
 );
@@ -118,9 +118,51 @@ router.post(
 router.get(
   '/statistics',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateQuery(schemas.installationStatsQuery),
   installationController.getInstallationStatistics
+);
+
+/**
+ * @swagger
+ * /installations/search:
+ *   get:
+ *     summary: Search installation requests by account number or customer name
+ *     description: >
+ *       Matches q as a substring across account_number, customer_name and
+ *       meter_number. Backed by a GIN trigram index. Registered before /:id so
+ *       this literal path isn't swallowed by the id matcher.
+ *     tags: [Installations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         example: Isreal
+ *       - in: query
+ *         name: discoCode
+ *         schema: { type: string }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [PENDING, ASSIGNED, IN_PROGRESS, INSTALLED, EXPORTED, FAILED, CANCELLED] }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Paginated matches
+ */
+router.get(
+  '/search',
+  authenticate,
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
+  validateQuery(schemas.installationSearchQuery),
+  installationController.searchInstallations
 );
 
 /**
@@ -148,7 +190,7 @@ router.get(
 router.get(
   '/exports',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateQuery(schemas.getExportBatchesQuery),
   installationController.listExportBatches
 );
@@ -258,7 +300,7 @@ router.get(
 router.get(
   '/export/:discoCode',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateParams(schemas.discoCodeParam),
   validateQuery(schemas.exportInstallationsQuery),
   installationController.exportInstallationResponse
@@ -297,7 +339,7 @@ router.get(
 router.post(
   '/export/:discoCode/mark-sent',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateParams(schemas.discoCodeParam),
   validate(schemas.markExportSent),
   installationController.markExportSent
@@ -455,7 +497,7 @@ router.post(
 router.patch(
   '/:id/cancel',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateParams(schemas.idParam),
   validate(schemas.cancelInstallation),
   installationController.cancelInstallation
@@ -487,7 +529,7 @@ router.patch(
 router.get(
   '/:id',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN', 'INSTALLER']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER']),
   validateParams(schemas.idParam),
   installationController.getInstallationById
 );

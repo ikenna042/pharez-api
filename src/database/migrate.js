@@ -7,7 +7,7 @@ const createUsersTable = `
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
-    role VARCHAR(20) NOT NULL CHECK (role IN ('SUPERADMIN', 'ADMIN', 'INSTALLER')) DEFAULT 'INSTALLER',
+    role VARCHAR(20) NOT NULL CHECK (role IN ('SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER')) DEFAULT 'INSTALLER',
     nin VARCHAR(11) UNIQUE NOT NULL,
     phone VARCHAR(20) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -387,6 +387,54 @@ const alterMetersAddAssignment = (uid) => `
     CHECK (assignment_status IN ('UNASSIGNED', 'ASSIGNED', 'USED', 'RETURNED', 'LOST'));
 `;
 
+/**
+ * Revenue provenance for the offline (Aba Power) flow.
+ *
+ * installation_request declares payment_* columns that the offline flow never
+ * used. They now carry what a completed installation was worth, frozen at the
+ * moment the installer reported it:
+ *
+ *   payment_amount  the price, never recomputed
+ *   payment_status  EARNED    priced from the live price book at completion
+ *                   ESTIMATED backfilled at a later price because the row
+ *                             predates this feature
+ *   payment_source  PRICE_BOOK
+ *   meter_type_id   which meter_types row supplied the figure
+ *
+ * Freezing is the whole point: meter_types is edited in place with no history,
+ * so valuing past installations at today's price would restate closed months.
+ *
+ * NOTE for the later JED migration, which planned to map jed.amount ->
+ * payment_amount and JED's payment stage -> payment_status: the value column is
+ * consistent, but that phase will need a wider CHECK here or a separate column.
+ */
+const alterInstallationRequestAddRevenue = `
+  ALTER TABLE installation_request
+    ADD COLUMN IF NOT EXISTS meter_type_id INTEGER REFERENCES meter_types(id);
+
+  ALTER TABLE installation_request DROP CONSTRAINT IF EXISTS installation_request_payment_status_check;
+  ALTER TABLE installation_request
+    ADD CONSTRAINT installation_request_payment_status_check
+    CHECK (payment_status IS NULL OR payment_status IN ('EARNED', 'ESTIMATED'));
+`;
+
+// GIN trigram indexes backing the search endpoints. A trigram index is what
+// makes ILIKE '%term%' (a substring match, not just a prefix) fast at scale --
+// a plain btree index can only help with a leading-anchor pattern ('term%').
+// Requires pg_trgm, ensured above before this block runs.
+const createSearchIndexes = `
+  CREATE INDEX IF NOT EXISTS idx_meters_number_trgm ON meters USING gin (meter_number gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_meters_sim_trgm ON meters USING gin (sim_number gin_trgm_ops);
+
+  CREATE INDEX IF NOT EXISTS idx_ir_account_trgm ON installation_request USING gin (account_number gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_ir_customer_name_trgm ON installation_request USING gin (customer_name gin_trgm_ops);
+
+  CREATE INDEX IF NOT EXISTS idx_users_first_name_trgm ON users USING gin (first_name gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_users_last_name_trgm ON users USING gin (last_name gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_users_email_trgm ON users USING gin (email gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_users_phone_trgm ON users USING gin (phone gin_trgm_ops);
+`;
+
 const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -400,6 +448,8 @@ const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_jed_status ON jed_customer_request(status);
   CREATE INDEX IF NOT EXISTS idx_jed_rrr ON jed_customer_request(rrr);
   CREATE INDEX IF NOT EXISTS idx_jed_date_requested ON jed_customer_request(date_requested);
+  CREATE INDEX IF NOT EXISTS idx_jed_revenue ON jed_customer_request(status, date_paid);
+  CREATE INDEX IF NOT EXISTS idx_ir_revenue ON installation_request(disco_id, status, reported_at);
   CREATE INDEX IF NOT EXISTS idx_meters_meter_number ON meters(meter_number);
   CREATE INDEX IF NOT EXISTS idx_meters_status ON meters(status);
   CREATE INDEX IF NOT EXISTS idx_api_keys_api_key ON api_keys(api_key);
@@ -562,6 +612,12 @@ const runMigration = async (options = {}) => {
     // Ensure pgcrypto extension (for gen_random_uuid) is available
     await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
     console.log('✅ pgcrypto extension ensured');
+
+    // pg_trgm backs the GIN trigram indexes search relies on -- without it,
+    // ILIKE '%term%' on a large table is a full scan regardless of any
+    // ordinary btree index, since a leading wildcard can't use one.
+    await client.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
+    console.log('✅ pg_trgm extension ensured');
     
     // Create users table
     await client.query(createUsersTable);
@@ -624,9 +680,15 @@ const runMigration = async (options = {}) => {
     await client.query(alterMetersAddAssignment(userIdType));
     console.log('✅ Ensured assignment columns exist on meters');
 
+    await client.query(alterInstallationRequestAddRevenue);
+    console.log('✅ Ensured revenue columns exist on installation_request');
+
     // Create indexes (including new tables)
     await client.query(createIndexes);
     console.log('✅ Indexes created');
+
+    await client.query(createSearchIndexes);
+    console.log('✅ Search (trigram) indexes created');
 
     // Create update triggers for tables
     await client.query(createUpdateTrigger);

@@ -1,7 +1,25 @@
 const XLSX = require('xlsx');
 
+/**
+ * True when sheet_to_json handed back a JS number rather than a string for an
+ * identifier-like column (meter/SIM serial). That only happens when the source
+ * cell itself was stored as a genuine number, not text -- and it's a one-way
+ * data loss that no amount of downstream parsing can undo:
+ *
+ *  - a leading zero on a meter number is gone before .toString() ever runs
+ *    (0239110006909 and 239110006909 are the same number)
+ *  - a 19-digit SIM serial exceeds Number.MAX_SAFE_INTEGER, so the value
+ *    itself is already wrong, not just unpadded (8923420038268091235 comes
+ *    back as 8923420038268091000)
+ *
+ * So this isn't corrected here -- it's rejected with a message that tells the
+ * uploader exactly how to fix their file, rather than silently importing a
+ * serial that's missing a digit or has the wrong ones.
+ */
+const wasStoredAsNumber = (value) => typeof value === 'number';
+
 class ExcelService {
-  
+
   // Parse meter upload Excel file
   static parseMeterExcel(buffer) {
     try {
@@ -31,6 +49,13 @@ class ExcelService {
         if (!meterNumberRaw) {
           throw new Error(`Row ${index + 2}: METER NUMBER is required`);
         }
+        if (wasStoredAsNumber(meterNumberRaw)) {
+          throw new Error(
+            `Row ${index + 2}: METER NUMBER is stored as a number in this file (${meterNumberRaw}), ` +
+            'which can silently drop a leading zero. In Excel, format that column as Text ' +
+            '(Format Cells > Text) before entering serials, then re-upload.'
+          );
+        }
 
         // Phase type normalization
         let phaseTypeRaw = normalized['PHASETYPE'] ?? normalized['PHASE_TYPE'];
@@ -55,6 +80,16 @@ class ExcelService {
 
         // Fallbacks for other fields using substring matching
         const simCell = normalized['SIMNUMBER'] ?? Object.keys(normalized).find(k => k.includes('SIM')) ? (normalized[Object.keys(normalized).find(k => k.includes('SIM'))]) : null;
+        if (wasStoredAsNumber(simCell)) {
+          // SIM serials run to 19 digits, far past Number.MAX_SAFE_INTEGER, so a
+          // numeric cell has already lost real digits here -- not just a
+          // leading zero. .toString() would silently save the wrong SIM.
+          throw new Error(
+            `Row ${index + 2}: SIM NUMBER is stored as a number in this file (${simCell}), ` +
+            'which loses precision on serials this long. In Excel, format that column as Text ' +
+            '(Format Cells > Text) before entering serials, then re-upload.'
+          );
+        }
         const manuCell = normalized['MANUFACTUREDDATE'] ?? Object.keys(normalized).find(k => k.includes('MANUFACTUR')) ? (normalized[Object.keys(normalized).find(k => k.includes('MANUFACTUR'))]) : null;
         const makeCell = normalized['METERMAKE'] ?? Object.keys(normalized).find(k => k.includes('METERMAKE') || k === 'MAKE') ? (normalized[Object.keys(normalized).find(k => k.includes('METERMAKE') || k === 'MAKE')]) : null;
         const modelCell = normalized['MODEL'] ?? Object.keys(normalized).find(k => k.includes('MODEL')) ? (normalized[Object.keys(normalized).find(k => k.includes('MODEL'))]) : null;
@@ -72,10 +107,16 @@ class ExcelService {
 
       return meters;
     } catch (error) {
+      // Without statusCode, errorHandler.js falls through to a generic 500 and
+      // (in production) drops the message entirely -- these are all row-level
+      // input problems, so the caller should see a 400 with the real reason.
       if (error.message.includes('Row')) {
+        error.statusCode = error.statusCode || 400;
         throw error;
       }
-      throw new Error(`Failed to parse Excel file: ${error.message}`);
+      const wrapped = new Error(`Failed to parse Excel file: ${error.message}`);
+      wrapped.statusCode = 400;
+      throw wrapped;
     }
   }
 

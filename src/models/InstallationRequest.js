@@ -409,6 +409,34 @@ class InstallationRequest {
         [requestId, meter.id]
       );
 
+      // Price the job from the live price book and freeze it onto the row.
+      // Resolved here rather than at read time because meter_types is edited in
+      // place with no history: valuing a past installation at today's price
+      // would silently restate closed months.
+      //
+      // meter_types.name is title case ('Single Phase') while
+      // installation_request.meter_type is upper case, hence upper(name).
+      // Duplicate active names are possible, so pick deterministically.
+      const price = await client.query(
+        `SELECT id, amount FROM meter_types
+         WHERE is_active = true AND upper(name) = upper($1)
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+        [request.meter_type]
+      );
+
+      const priceRow = price.rows[0] || null;
+
+      if (!priceRow) {
+        // Deliberately not fatal. An installer losing a field submission because
+        // an admin deactivated a price is worse than a gap finance can see and
+        // correct; the finance endpoints report these under missingAmountCount.
+        console.warn(
+          `[revenue] no active meter_types price for "${request.meter_type}" ` +
+          `(installation_request ${requestId}); recording installation without an amount`
+        );
+      }
+
       const updated = await client.query(
         `UPDATE installation_request
          SET status = 'INSTALLED',
@@ -416,15 +444,20 @@ class InstallationRequest {
              installation_date = $4, latitude = $5, longitude = $6,
              installation_photo_url = $7, disco_supervisor = $8,
              installation_notes = $9, installed_by = $10,
+             payment_amount = $11, meter_type_id = $12,
+             payment_status = 'EARNED', payment_source = 'PRICE_BOOK',
              reported_at = CURRENT_TIMESTAMP, failure_reason = NULL,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $11
+         WHERE id = $13
          RETURNING *`,
         [
           meter.id, meter.meter_number, sealNumber || null,
           installationDate || null, latitude ?? null, longitude ?? null,
           installationPhotoUrl || null, discoSupervisor || null,
-          notes || null, installerId, requestId
+          notes || null, installerId,
+          priceRow ? priceRow.amount : null,
+          priceRow ? priceRow.id : null,
+          requestId
         ]
       );
 
@@ -554,6 +587,14 @@ class InstallationRequest {
       reportedAt: row.reported_at,
       installationNotes: row.installation_notes,
       failureReason: row.failure_reason,
+
+      // Frozen at completion; see alterInstallationRequestAddRevenue in migrate.js.
+      revenueAmount:
+        row.payment_amount === null || row.payment_amount === undefined
+          ? null
+          : parseFloat(row.payment_amount),
+      revenueStatus: row.payment_status || null,   // EARNED | ESTIMATED
+      meterTypeId: row.meter_type_id ?? null,
 
       exportBatchId: row.export_batch_id,
       exportedAt: row.exported_at,

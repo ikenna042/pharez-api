@@ -104,6 +104,24 @@ const getImportBatch = asyncHandler(async (req, res) => {
   res.json({ success: true, data: batch });
 });
 
+const undoImportBatch = asyncHandler(async (req, res) => {
+  const batch = await ImportBatch.findById(req.params.id);
+
+  if (!batch) {
+    return res.status(404).json({ success: false, message: 'Import batch not found' });
+  }
+
+  const result = await ImportBatch.undo(req.params.id);
+
+  res.json({
+    success: true,
+    message: result.deletedCount > 0
+      ? `Removed ${result.deletedCount} row(s) created by this import`
+      : 'Nothing eligible to remove -- every row from this import is already in use',
+    data: result
+  });
+});
+
 const sendTemplate = async (res, disco, importType, label) => {
   const buffer = DiscoImportService.buildTemplate(disco, importType);
   const fileName = `${disco.code.toLowerCase()}_${label}_template.xlsx`;
@@ -130,6 +148,7 @@ module.exports = {
   importMeterInventory,
   listImportBatches,
   getImportBatch,
+  undoImportBatch,
   downloadPendingInstallationTemplate,
   downloadMeterInventoryTemplate
 };

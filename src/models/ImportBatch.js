@@ -130,6 +130,131 @@ class ImportBatch {
     };
   }
 
+  /**
+   * Undo an import: remove the rows it created, but only the ones nothing
+   * real depends on yet. Mirrors the exact safety rules used in the manual
+   * database cleanup this codebase has needed before:
+   *
+   *  - PENDING_INSTALLATIONS: only rows still in PENDING/ASSIGNED/FAILED/
+   *    CANCELLED are removed. INSTALLED/EXPORTED/IN_PROGRESS rows represent
+   *    real field work or a report already sent to the disco, so they are
+   *    left alone and counted as skipped, not deleted.
+   *  - METER_INVENTORY: only meters that are still UNASSIGNED and not
+   *    referenced by any installation_request.meter_id are removed. A meter
+   *    already dispatched or installed stays.
+   *
+   * One transaction; nothing is removed if anything after it fails.
+   */
+  static async undo(id) {
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const batchResult = await client.query('SELECT * FROM import_batches WHERE id = $1', [id]);
+      if (batchResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      const batch = batchResult.rows[0];
+
+      let deletedCount = 0;
+      let skippedCount = 0;
+      const skippedByReason = {};
+
+      if (batch.import_type === 'PENDING_INSTALLATIONS') {
+        const REVERSIBLE = ['PENDING', 'ASSIGNED', 'FAILED', 'CANCELLED'];
+
+        const skipped = await client.query(
+          `SELECT status, COUNT(*)::int AS n FROM installation_request
+           WHERE import_batch_id = $1 AND status != ALL($2::varchar[])
+           GROUP BY status`,
+          [id, REVERSIBLE]
+        );
+        skipped.rows.forEach((r) => { skippedByReason[r.status] = r.n; skippedCount += r.n; });
+
+        // Defensive, mirrors the manual cleanup precedent: meters.installation_
+        // request_id is a NO ACTION FK, so a meter's back-reference to a row
+        // about to be deleted would otherwise block the delete outright. In
+        // practice only INSTALLED rows ever get this reference (set alongside
+        // reaching that status), and INSTALLED rows are never in REVERSIBLE --
+        // this exists so that invariant changing later can't reintroduce the bug.
+        await client.query(
+          `UPDATE meters SET installation_request_id = NULL
+           WHERE installation_request_id IN (
+             SELECT id FROM installation_request
+             WHERE import_batch_id = $1 AND status = ANY($2::varchar[])
+           )`,
+          [id, REVERSIBLE]
+        );
+
+        // Keep each touched batch's cached item_count honest.
+        await client.query(
+          `UPDATE assignment_batches ab
+           SET item_count = GREATEST(0, ab.item_count - sub.n), updated_at = CURRENT_TIMESTAMP
+           FROM (
+             SELECT assignment_batch_id, COUNT(*)::int AS n
+             FROM installation_request
+             WHERE import_batch_id = $1 AND status = ANY($2::varchar[])
+               AND assignment_batch_id IS NOT NULL
+             GROUP BY assignment_batch_id
+           ) sub
+           WHERE ab.id = sub.assignment_batch_id`,
+          [id, REVERSIBLE]
+        );
+
+        const deleted = await client.query(
+          `DELETE FROM installation_request
+           WHERE import_batch_id = $1 AND status = ANY($2::varchar[])
+           RETURNING id`,
+          [id, REVERSIBLE]
+        );
+        deletedCount = deleted.rowCount;
+      } else if (batch.import_type === 'METER_INVENTORY') {
+        const skipped = await client.query(
+          `SELECT
+             CASE WHEN assignment_status != 'UNASSIGNED' THEN assignment_status ELSE 'IN_USE' END AS reason,
+             COUNT(*)::int AS n
+           FROM meters
+           WHERE import_batch_id = $1
+             AND (assignment_status != 'UNASSIGNED'
+                  OR id IN (SELECT meter_id FROM installation_request WHERE meter_id IS NOT NULL))
+           GROUP BY 1`,
+          [id]
+        );
+        skipped.rows.forEach((r) => { skippedByReason[r.reason] = r.n; skippedCount += r.n; });
+
+        const deleted = await client.query(
+          `DELETE FROM meters
+           WHERE import_batch_id = $1
+             AND assignment_status = 'UNASSIGNED'
+             AND id NOT IN (SELECT meter_id FROM installation_request WHERE meter_id IS NOT NULL)
+           RETURNING id`,
+          [id]
+        );
+        deletedCount = deleted.rowCount;
+      } else {
+        await client.query('ROLLBACK');
+        throw Object.assign(new Error(`Unknown import_type "${batch.import_type}"`), { statusCode: 400 });
+      }
+
+      await client.query('COMMIT');
+
+      return {
+        batchId: id,
+        importType: batch.import_type,
+        deletedCount,
+        skippedCount,
+        skippedByReason
+      };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   static format(row) {
     if (!row) return null;
 

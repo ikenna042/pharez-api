@@ -1,6 +1,7 @@
 const swaggerJSDoc = require('swagger-jsdoc');
 const { ABA_POWER_IMPORT_MAPPING, ABA_POWER_EXPORT_TEMPLATE } = require('./discoDefaults');
 const swaggerUi = require('swagger-ui-express');
+const { buildServers } = require('./swaggerServers');
 
 const options = {
   definition: {
@@ -40,22 +41,8 @@ const options = {
         url: 'https://opensource.org/licenses/MIT'
       }
     },
-    servers: [
-      {
-        url: process.env.NODE_ENV === 'production' 
-          ? 'https://pharez-api.onrender.com/api/v1' 
-          : `http://localhost:${process.env.PORT || 3000}/api/v1`,
-        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
-      }, // https://pharez-api.onrender.com/api/v1/users
-      {
-        url: 'http://localhost:3000/api/v1',
-        description: 'Local development server'
-      },
-      {
-        url: 'https://pharez-api.onrender.com/api/v1',
-        description: 'Production server'
-      }
-    ],
+    // Driven by PUBLIC_API_URL; see swaggerServers.js for why this is not hardcoded.
+    servers: buildServers(),
     components: {
       // Sourced from the same module that seeds the discos table, so the example
       // shown in the docs is always the live default rather than a hand-written
@@ -109,7 +96,7 @@ const options = {
             },
             role: {
               type: 'string',
-              enum: ['SUPERADMIN', 'ADMIN', 'INSTALLER'],
+              enum: ['SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER'],
               description: 'User role',
               example: 'ADMIN'
             },
@@ -167,7 +154,7 @@ const options = {
             },
             role: {
               type: 'string',
-              enum: ['SUPERADMIN', 'ADMIN', 'INSTALLER'],
+              enum: ['SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER'],
               default: 'INSTALLER',
               example: 'ADMIN'
             },
@@ -217,7 +204,7 @@ const options = {
             },
             role: {
               type: 'string',
-              enum: ['SUPERADMIN', 'ADMIN', 'INSTALLER'],
+              enum: ['SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER'],
               example: 'ADMIN'
             },
             email: {

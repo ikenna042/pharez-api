@@ -4,7 +4,7 @@ const validationSchemas = {
   createUser: Joi.object({
     firstName: Joi.string().min(2).max(50).required().trim(),
     lastName: Joi.string().min(2).max(50).required().trim(),
-    role: Joi.string().valid('SUPERADMIN', 'ADMIN', 'INSTALLER').default('INSTALLER'),
+    role: Joi.string().valid('SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER').default('INSTALLER'),
     nin: Joi.string().length(11).pattern(/^\d+$/).required()
       .messages({
         'string.length': 'NIN must be exactly 11 digits',
@@ -27,7 +27,7 @@ const validationSchemas = {
   updateUser: Joi.object({
     firstName: Joi.string().min(2).max(50).optional().trim(),
     lastName: Joi.string().min(2).max(50).optional().trim(),
-    role: Joi.string().valid('SUPERADMIN', 'ADMIN', 'INSTALLER').optional(),
+    role: Joi.string().valid('SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER').optional(),
     email: Joi.string().email().optional().lowercase(),
     homeAddress: Joi.string().max(500).optional().trim(),
     officeAddress: Joi.string().max(500).optional().trim()
@@ -53,7 +53,7 @@ const validationSchemas = {
   getUsersQuery: Joi.object({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(10),
-    role: Joi.string().valid('SUPERADMIN', 'ADMIN', 'INSTALLER').optional(),
+    role: Joi.string().valid('SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER').optional(),
     search: Joi.string().max(100).optional().trim()
   }),
 
@@ -143,6 +143,52 @@ const validationSchemas = {
     status: Joi.string().valid('INITIATED', 'PAID', 'CONFIRMED', 'COMPLETED').optional()
   }),
 
+  /* ---------------------------------------------------------------------
+   * Finance / revenue
+   *
+   * groupBy and sortBy are whitelisted here AND again in financeFilters.js.
+   * The duplication is deliberate: Joi gives the caller a clear 400, and the
+   * resolver is the thing that actually keeps arbitrary strings out of SQL.
+   * ------------------------------------------------------------------- */
+
+  financeRevenueQuery: Joi.object({
+    discoCode: Joi.string().max(50).optional().uppercase().trim(),
+    meterType: Joi.string().valid('SINGLE PHASE', 'THREE PHASE').optional().uppercase(),
+    from: Joi.date().iso().optional(),
+    to: Joi.date().iso().optional(),
+    rangePreset: Joi.string()
+      .valid('today', 'thisWeek', 'thisMonth', 'thisYear', 'last30days')
+      .optional()
+  }),
+
+  financeBreakdownQuery: Joi.object({
+    discoCode: Joi.string().max(50).optional().uppercase().trim(),
+    meterType: Joi.string().valid('SINGLE PHASE', 'THREE PHASE').optional().uppercase(),
+    from: Joi.date().iso().optional(),
+    to: Joi.date().iso().optional(),
+    rangePreset: Joi.string()
+      .valid('today', 'thisWeek', 'thisMonth', 'thisYear', 'last30days')
+      .optional(),
+    groupBy: Joi.string()
+      .valid('disco', 'meterType', 'day', 'week', 'month')
+      .default('disco')
+  }),
+
+  financeTransactionsQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    discoCode: Joi.string().max(50).optional().uppercase().trim(),
+    meterType: Joi.string().valid('SINGLE PHASE', 'THREE PHASE').optional().uppercase(),
+    from: Joi.date().iso().optional(),
+    to: Joi.date().iso().optional(),
+    rangePreset: Joi.string()
+      .valid('today', 'thisWeek', 'thisMonth', 'thisYear', 'last30days')
+      .optional(),
+    search: Joi.string().max(100).optional().trim(),
+    sortBy: Joi.string().valid('revenueAt', 'amount', 'discoCode', 'customerName').default('revenueAt'),
+    sortOrder: Joi.string().valid('asc', 'desc').default('desc')
+  }),
+
   getPaymentsQuery: Joi.object({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(20),
@@ -156,6 +202,40 @@ const validationSchemas = {
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(10),
     isActive: Joi.boolean().optional()
+  }),
+
+  /* ---------------------------------------------------------------------
+   * Search -- one dedicated endpoint per resource, all sharing the same
+   * "q required, everything else optional" shape. Backed by GIN trigram
+   * indexes (see migrate.js) so a substring match stays fast as these
+   * tables grow into the thousands.
+   * ------------------------------------------------------------------- */
+
+  meterSearchQuery: Joi.object({
+    q: Joi.string().min(1).max(100).required().trim()
+      .messages({ 'string.empty': 'q is required' }),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    status: Joi.string().valid('AVAILABLE', 'INSTALLED', 'FAULTY', 'RETIRED').optional(),
+    phaseType: Joi.string().valid('SINGLE PHASE', 'THREE PHASE').optional()
+  }),
+
+  installationSearchQuery: Joi.object({
+    q: Joi.string().min(1).max(100).required().trim()
+      .messages({ 'string.empty': 'q is required' }),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    discoCode: Joi.string().max(50).optional().uppercase().trim(),
+    status: Joi.string().valid('PENDING', 'ASSIGNED', 'IN_PROGRESS', 'INSTALLED', 'EXPORTED', 'FAILED', 'CANCELLED').optional()
+  }),
+
+  userSearchQuery: Joi.object({
+    q: Joi.string().min(1).max(100).required().trim()
+      .messages({ 'string.empty': 'q is required' }),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    role: Joi.string().valid('SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER').optional(),
+    includeInactive: Joi.boolean().default(false)
   }),
 
   // API Key management

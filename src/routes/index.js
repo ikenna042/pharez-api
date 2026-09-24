@@ -12,6 +12,7 @@ const discoRoutes = require('./discoRoutes');
 const importRoutes = require('./importRoutes');
 const assignmentRoutes = require('./assignmentRoutes');
 const installationRoutes = require('./installationRoutes');
+const financeRoutes = require('./financeRoutes');
 
 const router = express.Router();
 
@@ -34,7 +35,8 @@ router.get('/', (req, res) => {
       discos: '/discos',
       imports: '/imports',
       assignments: '/assignments',
-      installations: '/installations'
+      installations: '/installations',
+      finance: '/finance'
     },
     documentation: '/api-docs'
   });
@@ -54,4 +56,5 @@ router.use('/discos', discoRoutes);
 router.use('/imports', importRoutes);
 router.use('/assignments', assignmentRoutes);
 router.use('/installations', installationRoutes);
+router.use('/finance', financeRoutes);
 module.exports = router;
