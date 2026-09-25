@@ -67,10 +67,29 @@ const buildServers = (env = process.env) => {
   return selfIsDev ? [dev, production] : [production, dev];
 };
 
+/**
+ * This deployment's own API base, ending in /api/v1.
+ *
+ * Used to build absolute links the API hands out to clients -- currently the
+ * /files/:id URL stored against an uploaded attachment. Shares PUBLIC_API_URL
+ * with the Swagger server list so a deployment declares its public address
+ * exactly once; falls back to localhost off-production so a dev box returns
+ * links that actually resolve.
+ */
+const resolveApiBaseUrl = (env = process.env) => {
+  const configured = normalizePublicApiUrl(env.PUBLIC_API_URL);
+  if (configured) return configured;
+
+  if (env.NODE_ENV === 'production') return `${DEFAULT_PRODUCTION_URL}${API_PREFIX}`;
+
+  return `http://localhost:${env.PORT || 3000}${API_PREFIX}`;
+};
+
 module.exports = {
   API_PREFIX,
   DEFAULT_PRODUCTION_URL,
   DEFAULT_DEV_URL,
   buildServers,
-  normalizePublicApiUrl
+  normalizePublicApiUrl,
+  resolveApiBaseUrl
 };

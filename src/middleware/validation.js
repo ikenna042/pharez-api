@@ -278,6 +278,38 @@ const validationSchemas = {
     discoCode: Joi.string().max(50).required().uppercase().trim()
   }),
 
+  /* ---------------------------------------------------------------------
+   * File uploads
+   *
+   * Every field allows '' as well as null: multipart text fields that the
+   * client leaves blank arrive as empty strings, which Joi.number() and
+   * Joi.date() would otherwise reject outright.
+   * ------------------------------------------------------------------- */
+
+  createUpload: Joi.object({
+    category: Joi.string().max(50).optional().allow(null, '').default('general').trim(),
+    entityType: Joi.string().max(50).optional().allow(null, '').trim(),
+    entityId: Joi.string().max(64).optional().allow(null, '').trim(),
+    latitude: Joi.number().min(-90).max(90).optional().allow(null, ''),
+    longitude: Joi.number().min(-180).max(180).optional().allow(null, ''),
+    capturedAt: Joi.date().iso().optional().allow(null, '')
+  }),
+
+  listUploadsQuery: Joi.object({
+    entityType: Joi.string().max(50).optional().trim(),
+    entityId: Joi.string().max(64).optional().trim(),
+    category: Joi.string().max(50).optional().trim()
+  }),
+
+  // GET /files/:token is public and keyed by the UUID, never the SERIAL id.
+  // Anything else must be rejected here, same reasoning as schemas.userId --
+  // letting it through reaches Postgres as "invalid input syntax for type
+  // uuid" and surfaces as a 500 rather than a 400.
+  fileTokenParam: Joi.object({
+    token: Joi.string().guid({ version: ['uuidv4'] }).required()
+      .messages({ 'string.guid': 'token must be a valid file token' })
+  }),
+
   discoCodeOnlyParam: Joi.object({
     code: Joi.string().max(50).required().uppercase().trim()
   }),

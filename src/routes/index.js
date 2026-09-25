@@ -13,6 +13,8 @@ const importRoutes = require('./importRoutes');
 const assignmentRoutes = require('./assignmentRoutes');
 const installationRoutes = require('./installationRoutes');
 const financeRoutes = require('./financeRoutes');
+const uploadRoutes = require('./uploadRoutes');
+const fileRoutes = require('./fileRoutes');
 
 const router = express.Router();
 
@@ -36,7 +38,9 @@ router.get('/', (req, res) => {
       imports: '/imports',
       assignments: '/assignments',
       installations: '/installations',
-      finance: '/finance'
+      finance: '/finance',
+      uploads: '/uploads',
+      files: '/files'
     },
     documentation: '/api-docs'
   });
@@ -57,4 +61,6 @@ router.use('/imports', importRoutes);
 router.use('/assignments', assignmentRoutes);
 router.use('/installations', installationRoutes);
 router.use('/finance', financeRoutes);
+router.use('/uploads', uploadRoutes);
+router.use('/files', fileRoutes);
 module.exports = router;
