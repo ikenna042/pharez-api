@@ -1,392 +1,166 @@
 const express = require('express');
-const multer = require('multer');
-const XLSX = require('xlsx');
+const { validate, validateQuery, validateParams, schemas } = require('../middleware/validation');
+const { authenticate } = require('../middleware/auth');
+const { uploadFiles, handleUploadErrors } = require('../config/multerAttachments');
+const uploadController = require('../controllers/uploadController');
 
 const router = express.Router();
 
 /**
  * @swagger
  * tags:
- *  name: Uploads
- *  description: Endpoints for uploading and processing Excel files
- * 
+ *   name: Uploads
+ *   description: >
+ *     General-purpose file storage, backed by Cloudflare R2. Upload a file, get a
+ *     permanent URL back, then hand that URL to whichever flow needs it -- an
+ *     installation report, or anything added later. Nothing here is specific to
+ *     installations.
  */
 
-// Configure multer for file upload (stores in memory)
-const storage = multer.memoryStorage();
-const upload = multer({ 
-  storage: storage,
-  fileFilter: (req, file, cb) => {
-    // Accept only Excel files
-    const allowedTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-      'application/vnd.ms-excel' // .xls
-    ];
-    
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only Excel files (.xlsx, .xls) are allowed'), false);
-    }
-  }
-});
-
-// /**
-//  * @swagger
-//  * /
-//  * 
-//  */
-
-// router.get('/', (req, res) => {
-//   res.json({
-//     success: true,
-//     message: 'Upload endpoint is working'
-//   });
-// });
+/*
+ * Route order matters: the literal '/' collection route is registered before
+ * '/:id', so it is not swallowed by the id matcher.
+ */
 
 /**
  * @swagger
- * /uploads/excel:
+ * /uploads:
  *   post:
- *     summary: Upload and process an Excel file
+ *     summary: Upload one or more files
+ *     description: >
+ *       Up to 5 files, 5 MB each. The real type is read from the file's own bytes,
+ *       so renaming a .txt to .jpg is rejected. Every file is verified before any
+ *       is stored, and the metadata rows are written in one transaction, so a bad
+ *       file in the batch leaves nothing behind. Returns a permanent public URL
+ *       per file -- pass it straight to installationPhotoUrl when reporting an
+ *       installation.
  *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
  *         multipart/form-data:
  *           schema:
  *             type: object
+ *             required: [files]
  *             properties:
- *               file:
- *                 type: string
- *                 format: binary
+ *               files:
+ *                 type: array
+ *                 items: { type: string, format: binary }
+ *               category: { type: string, example: installation_photo }
+ *               entityType: { type: string, example: installation }
+ *               entityId: { type: string, example: "930" }
+ *               latitude: { type: number, example: 5.1066 }
+ *               longitude: { type: number, example: 7.3667 }
+ *               capturedAt: { type: string, format: date-time }
  *     responses:
- *       200:
- *         description: File processed successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: File processed successfully
- *                 filename:
- *                   type: string
- *                   example: example.xlsx
- *                 sheets:
- *                   type: array
- *                   items:
- *                     type: string
- *                   example: ["Sheet1", "Sheet2"]
- *                 data:
- *                   type: object
- *                   additionalProperties:
- *                     type: array
- *                     items:
- *                       type: object
+ *       201:
+ *         description: Files stored
  *       400:
- *         description: No file uploaded
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *       500:
- *         description: File processing failed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
+ *         description: No files, a file over 5 MB, more than 5 files, or a disallowed type
+ *       503:
+ *         description: File storage not configured
  */
+router.post(
+  '/',
+  authenticate,
+  uploadFiles.array('files', 5),
+  handleUploadErrors,
+  validate(schemas.createUpload),
+  uploadController.uploadFiles
+);
 
 /**
  * @swagger
- * /uploads/excel-first-sheet:
- *   post:
- *     summary: Upload and process only the first sheet of an Excel file
+ * /uploads:
+ *   get:
+ *     summary: List the files attached to a record
  *     tags: [Uploads]
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               file:
- *                 type: string
- *                 format: binary
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: entityType
+ *         required: true
+ *         schema: { type: string, example: installation }
+ *       - in: query
+ *         name: entityId
+ *         required: true
+ *         schema: { type: string, example: "930" }
+ *       - in: query
+ *         name: category
+ *         schema: { type: string, example: installation_photo }
  *     responses:
  *       200:
- *         description: File processed successfully (first sheet only)
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: File processed successfully
- *                 filename:
- *                   type: string
- *                   example: example.xlsx
- *                 sheet:
- *                   type: string
- *                   example: Sheet1
- *                 data:
- *                   type: array
- *                   items:
- *                     type: object
+ *         description: Files for that record, newest first
  *       400:
- *         description: No file uploaded
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *       500:
- *         description: File processing failed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
+ *         description: entityType and entityId are both required
  */
+router.get(
+  '/',
+  authenticate,
+  validateQuery(schemas.listUploadsQuery),
+  uploadController.listUploads
+);
 
-// Endpoint to upload and process Excel file
 /**
  * @swagger
- * /uploads/excel-modified:
- *   post:
- *     summary: Upload an Excel file, modify its content by adding new columns, and return the modified file
+ * /uploads/{id}:
+ *   get:
+ *     summary: Get one file's record
  *     tags: [Uploads]
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               file:
- *                 type: string
- *                 format: binary
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
  *     responses:
  *       200:
- *         description: File processed successfully (modified)
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: File processed successfully
- *                 filename:
- *                   type: string
- *                   example: example.xlsx
- *                 sheets:
- *                   type: array
- *                   items:
- *                     type: string
- *                   example: ["Sheet1", "Sheet2"]
- *                 data:
- *                   type: object
- *                   additionalProperties:
- *                     type: array
- *                     items:
- *                       type: object
- *       400:
- *         description: No file uploaded
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *       500:
- *         description: File processing failed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
+ *         description: File record
+ *       404:
+ *         description: File not found
  */
+router.get(
+  '/:id',
+  authenticate,
+  validateParams(schemas.idParam),
+  uploadController.getUpload
+);
 
-// Endpoint to upload and process Excel file
 /**
  * @swagger
- * /uploads/excel-modified:
- *   post:
- *     summary: Upload an Excel file, modify its content by adding new columns, and return the modified file
+ * /uploads/{id}:
+ *   delete:
+ *     summary: Delete a file
+ *     description: >
+ *       Removes the stored object and its record. Allowed for the user who
+ *       uploaded it, or any SUPERADMIN, ADMIN or SUPERVISOR.
  *     tags: [Uploads]
- *     requestBody:
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: File deleted
+ *       403:
+ *         description: Not your upload
+ *       404:
+ *         description: File not found
+ *       503:
+ *         description: File storage not configured
  */
-
-router.post('/excel', upload.single('file'), (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: 'No file uploaded'
-            });
-        }
-        // Read the uploaded Excel file from memory
-        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-
-        const allSheetsData = {};
-        workbook.SheetNames.forEach(sheetName => {
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: null });
-            allSheetsData[sheetName] = jsonData;
-        });
-
-            // Log the JSON data
-        console.log('=== Excel File Data ===');
-        console.log(JSON.stringify(allSheetsData, null, 2));
-        console.log('======================');
-
-            // Send response
-    res.json({
-      message: 'File processed successfully',
-      filename: req.file.originalname,
-      sheets: workbook.SheetNames,
-      data: allSheetsData
-    });
-
-    } catch (error) {
-      console.error('File upload error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'File processing failed'
-      });
-    }
-});
-
-// alternative endpoint for just the first sheet
-router.post('/excel-first-sheet', upload.single('file'), (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: 'No file uploaded'
-            });
-        }
-        // Read the uploaded Excel file from memory
-        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-
-        const firstSheetName = workbook.SheetNames[0];
-        const firstWorksheet = workbook.Sheets[firstSheetName];
-        const jsonData = XLSX.utils.sheet_to_json(firstWorksheet, { defval: null });
-
-            // Log the JSON data
-        console.log('=== First Sheet Data ===');
-        console.log(JSON.stringify(jsonData, null, 2));
-        console.log('======================');
-
-            // Send response
-    res.json({
-      message: 'File processed successfully',
-      filename: req.file.originalname,
-      sheet: firstSheetName,
-      data: jsonData
-    });
-
-    } catch (error) {
-      console.error('File upload error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'File processing failed'
-      });
-    }
-});
-
-router.post('/excel-modified', upload.single('file'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'No file uploaded'
-      });
-    }
-
-    // Read the uploaded Excel file
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-
-    const allSheetsData = {};
-    const modifiedSheetsData = {};
-
-    workbook.SheetNames.forEach(sheetName => {
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: null });
-
-      // Add new columns (example: "ProcessedAt" and "Status")
-      const modifiedData = jsonData.map((row, index) => ({
-        ...row,
-        ProcessedAt: new Date().toISOString(),
-        Status: index % 2 === 0 ? "OK" : "Pending" // Example values
-      }));
-
-      allSheetsData[sheetName] = jsonData;
-      modifiedSheetsData[sheetName] = modifiedData;
-    });
-
-    // Create a new workbook with the modified data
-    const newWorkbook = XLSX.utils.book_new();
-    Object.keys(modifiedSheetsData).forEach(sheetName => {
-      const newWorksheet = XLSX.utils.json_to_sheet(modifiedSheetsData[sheetName]);
-      XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, sheetName);
-    });
-
-    // Convert workbook to buffer
-    const newExcelBuffer = XLSX.write(newWorkbook, { type: 'buffer', bookType: 'xlsx' });
-
-    // Set response headers to return file
-    res.setHeader('Content-Disposition', 'attachment; filename=modified.xlsx');
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-
-    // Option 1: Send both JSON + Excel in one response (as base64)
-    // res.json({
-    //   message: 'File processed successfully',
-    //   filename: req.file.originalname,
-    //   sheets: workbook.SheetNames,
-    //   data: allSheetsData,
-    //   modifiedFile: newExcelBuffer.toString('base64') // send as base64 string
-    // });
-
-    // Option 2: Directly send the Excel file
-    res.send(newExcelBuffer);
-
-  } catch (error) {
-    console.error('File upload error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'File processing failed'
-    });
-  }
-});
+router.delete(
+  '/:id',
+  authenticate,
+  validateParams(schemas.idParam),
+  uploadController.deleteUpload
+);
 
 module.exports = router;

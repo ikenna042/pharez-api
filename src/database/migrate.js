@@ -364,6 +364,47 @@ const createMeterAssignmentsTable = (uid) => `
     ON meter_assignments (meter_id) WHERE status = 'ASSIGNED';
 `;
 
+// User-uploaded files held in object storage. Polymorphic on purpose:
+// entity_type/entity_id can point at any table, so there is no foreign key and
+// no cascade, and entity_id is VARCHAR so it fits both a SERIAL id and a UUID.
+// Both are nullable because a file may be uploaded before whatever references
+// it exists. Only the object key is stored -- never a URL, never the bytes.
+// public_token is what GET /files/:token is keyed by, deliberately instead of
+// the SERIAL id: the route is unauthenticated by design (a disco's spreadsheet
+// or a plain <img> tag cannot send a bearer token), so a sequential integer
+// there would let anyone walk /files/1, /files/2, ... and read every upload in
+// the system. The UUID is the only thing standing in for authorization on that
+// route, so it must never be guessable from anything else about the row.
+const createFileAttachmentsTable = (uid) => `
+  CREATE TABLE IF NOT EXISTS file_attachments (
+    id SERIAL PRIMARY KEY,
+    public_token UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    entity_type VARCHAR(50),
+    entity_id VARCHAR(64),
+    category VARCHAR(50) NOT NULL DEFAULT 'general',
+    storage_key TEXT NOT NULL UNIQUE,
+    content_type VARCHAR(100) NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    original_name VARCHAR(255),
+    latitude NUMERIC(10, 7),
+    longitude NUMERIC(10, 7),
+    captured_at TIMESTAMP WITH TIME ZONE,
+    uploaded_by ${uid} REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+// Covers a database that already had file_attachments before public_token
+// existed. gen_random_uuid() backfills every existing row with its own random
+// value (not the same value twice), so the UNIQUE constraint below never
+// conflicts even on a table that already has data.
+const alterFileAttachmentsAddPublicToken = `
+  ALTER TABLE file_attachments
+    ADD COLUMN IF NOT EXISTS public_token UUID NOT NULL DEFAULT gen_random_uuid();
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_file_attachments_public_token
+    ON file_attachments(public_token);
+`;
+
 // There is exactly ONE meter table in this system and it is `meters`. Assignment
 // state is added as an orthogonal column rather than as new values in
 // meters.status, because jedController requires status = 'AVAILABLE' before a JED
@@ -489,6 +530,8 @@ const createIndexes = `
 
   CREATE INDEX IF NOT EXISTS idx_meters_assigned_to ON meters(assigned_to);
   CREATE INDEX IF NOT EXISTS idx_meters_assignment_status ON meters(assignment_status);
+
+  CREATE INDEX IF NOT EXISTS idx_file_attachments_entity ON file_attachments(entity_type, entity_id);
 `;
 
 const createUpdateTrigger = `
@@ -675,6 +718,10 @@ const runMigration = async (options = {}) => {
 
     await client.query(createMeterAssignmentsTable(userIdType));
     console.log('✅ Meter assignments table created');
+    await client.query(createFileAttachmentsTable(userIdType));
+    console.log('✅ File attachments table created');
+    await client.query(alterFileAttachmentsAddPublicToken);
+    console.log('✅ Ensured public_token exists on file_attachments');
 
     // Must run before createIndexes, which indexes the columns it adds
     await client.query(alterMetersAddAssignment(userIdType));
