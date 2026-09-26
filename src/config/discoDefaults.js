@@ -62,7 +62,8 @@ const ABA_POWER_IMPORT_MAPPING = {
     }
   },
 
-  // Meter + Simcards sheet: Meter No | Sim card serial number | Column1 (phase)
+  // Meter + Simcards sheet: Meter Number | Sim Number | Manufactured Date |
+  // Meter Make | Model | Phase Type | Sgc Number
   meterInventory: {
     sheetIndex: 0,
     headerRow: 1,
@@ -80,10 +81,26 @@ const ABA_POWER_IMPORT_MAPPING = {
         headers: ['SIMCARDSERIALNUMBER', 'SIMNUMBER', 'SIMSERIAL', 'SIM'],
         transform: 'text'
       },
+      manufacturedDate: {
+        headers: ['MANUFACTURED DATE', 'MANUFACTURE DATE', 'YEAR OF MANUFACTURE', 'YEAR'],
+        transform: 'trim'
+      },
+      meterMake: {
+        headers: ['METER MAKE', 'MAKE', 'MANUFACTURER'],
+        transform: 'trim'
+      },
+      model: {
+        headers: ['MODEL', 'METER MODEL'],
+        transform: 'trim'
+      },
       phaseType: {
         headers: ['COLUMN1', 'PHASE', 'PHASETYPE', 'METERTYPE'],
         transform: 'phase',
         keepRaw: true
+      },
+      sgcNumber: {
+        headers: ['SGC NUMBER', 'SGCNO', 'SGC'],
+        transform: 'trim'
       }
     }
   }
