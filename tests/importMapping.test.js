@@ -8,7 +8,9 @@ const PENDING_HEADERS = [
   'RECOMMENDED METER INSTALLATION POSITION', 'RECOMMENDED METER TYPE',
   'ACCOUNT NUMBER', 'TRANSFORMER NAME', 'METER VENDOR'
 ];
-const INVENTORY_HEADERS = ['Meter No', 'Sim card serial number', 'Column1'];
+const INVENTORY_HEADERS = [
+  'METER NUMBER', 'SIM NUMBER', 'MANUFACTURED DATE', 'METER MAKE', 'MODEL', 'PHASE TYPE', 'SGC NUMBER'
+];
 
 /** Round-trips rows through a real workbook so the test exercises the same read path as the importer. */
 const parse = (headers, dataRows, config) => {
@@ -82,9 +84,33 @@ describe('pendingInstallations mapping', () => {
 describe('meterInventory mapping', () => {
   const config = ABA_POWER_IMPORT_MAPPING.meterInventory;
 
+  // Regression test for a real bug: manufacturedDate, meterMake, model and
+  // sgcNumber were read out of the sheet by discoImportService and written by
+  // Meter.bulkCreateFromImport, but the mapping config never declared field
+  // entries for them at all -- so every disco meter import silently saved them
+  // as null, for every row, since the feature existed. Caught only because the
+  // 3-column INVENTORY_HEADERS fixture above matched the incomplete config
+  // instead of the real 7-column template, so this test suite couldn't see it
+  // either. Assert all seven fields here so that blind spot can't reopen.
+  it('maps a real row from the meters-template sheet, all seven columns', () => {
+    const [{ values }] = parse(INVENTORY_HEADERS, [
+      ['0239110048745', '8923420038932593186f', '2025', 'ME METERING', 'MEM130', 'SINGLE PHASE', '600773']
+    ], config);
+
+    expect(values).toEqual({
+      meterNumber: '0239110048745',
+      simNumber: '8923420038932593186f',
+      manufacturedDate: '2025',
+      meterMake: 'ME METERING',
+      model: 'MEM130',
+      phaseType: 'SINGLE PHASE',
+      sgcNumber: '600773'
+    });
+  });
+
   it('preserves zero-padded serials and 19-digit SIMs', () => {
     const [{ values }] = parse(INVENTORY_HEADERS, [
-      ['0239110006909', '8923420038268091235', 'Single Phase']
+      ['0239110006909', '8923420038268091235', '2025', 'ME METERING', 'MEM130', 'Single Phase', '600773']
     ], config);
 
     expect(values.meterNumber).toBe('0239110006909');
@@ -94,7 +120,7 @@ describe('meterInventory mapping', () => {
 
   it('normalizes the Single Phase(TIS&P) variant and keeps the original', () => {
     const [{ values, raw }] = parse(INVENTORY_HEADERS, [
-      ['0239110006917', '8923420038268091227', 'Single Phase(TIS&P)']
+      ['0239110006917', '8923420038268091227', '2025', 'ME METERING', 'MEM130', 'Single Phase(TIS&P)', '600773']
     ], config);
 
     expect(values.phaseType).toBe('SINGLE PHASE');
@@ -103,10 +129,23 @@ describe('meterInventory mapping', () => {
 
   it('maps Unknown phase to null, which the column permits', () => {
     const [{ values }] = parse(INVENTORY_HEADERS, [
-      ['0239110006925', '8923420038268091219', 'Unknown']
+      ['0239110006925', '8923420038268091219', '2025', 'ME METERING', 'MEM130', 'Unknown', '600773']
     ], config);
 
     expect(values.phaseType).toBeNull();
+  });
+
+  it('leaves make/model/manufacturedDate/sgcNumber null when those columns are absent, without erroring', () => {
+    const minimalHeaders = ['METER NUMBER', 'SIM NUMBER', 'PHASE TYPE'];
+    const [{ values }] = parse(minimalHeaders, [
+      ['0239110006933', '8923420038268091243', 'SINGLE PHASE']
+    ], config);
+
+    expect(values.meterNumber).toBe('0239110006933');
+    expect(values.manufacturedDate).toBeNull();
+    expect(values.meterMake).toBeNull();
+    expect(values.model).toBeNull();
+    expect(values.sgcNumber).toBeNull();
   });
 
   it('rejects the pending-installations sheet with a message naming the missing columns', () => {
