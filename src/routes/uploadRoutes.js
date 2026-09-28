@@ -34,6 +34,10 @@ const router = express.Router();
  *       file in the batch leaves nothing behind. Returns a permanent public URL
  *       per file -- pass it straight to installationPhotoUrl when reporting an
  *       installation.
+ *
+ *       Images over 300KB are compressed before upload (quality reduced, an
+ *       opaque PNG may become a JPEG); images already at or under 300KB are
+ *       stored exactly as uploaded. PDFs are never compressed.
  *     tags: [Uploads]
  *     security:
  *       - bearerAuth: []
