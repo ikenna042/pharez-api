@@ -1,7 +1,8 @@
 const pool = require('../config/database');
 const FileAttachment = require('../models/FileAttachment');
 const StorageService = require('../services/storageService');
-const { allowedTypesForCategory, EXTENSION_BY_MIME } = require('../config/multerAttachments');
+const ImageCompressionService = require('../services/imageCompressionService');
+const { allowedTypesForCategory, EXTENSION_BY_MIME, IMAGE_MIME_TYPES } = require('../config/multerAttachments');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 const ADMIN_ROLES = ['SUPERADMIN', 'ADMIN', 'SUPERVISOR'];
@@ -46,17 +47,28 @@ const uploadFiles = asyncHandler(async (req, res) => {
   const prepared = [];
   for (const [index, file] of files.entries()) {
     const detected = await detectType(file.buffer, category, index);
+
+    // Images over the size ceiling get compressed (and possibly reformatted,
+    // e.g. an opaque PNG becomes JPEG) before ever reaching R2; everything
+    // else -- PDFs, already-small images -- passes through untouched. The key
+    // is built from the post-compression contentType so its extension always
+    // matches what's actually stored.
+    const { buffer, contentType } = IMAGE_MIME_TYPES.includes(detected.mime)
+      ? await ImageCompressionService.compress(file.buffer, detected.mime)
+      : { buffer: file.buffer, contentType: detected.mime };
+
     prepared.push({
       file,
-      contentType: detected.mime,
-      key: StorageService.buildObjectKey(entityType, entityId, EXTENSION_BY_MIME[detected.mime] || detected.ext)
+      buffer,
+      contentType,
+      key: StorageService.buildObjectKey(entityType, entityId, EXTENSION_BY_MIME[contentType] || detected.ext)
     });
   }
 
   const uploadedKeys = [];
   try {
     for (const item of prepared) {
-      await StorageService.saveFile(item.key, item.file.buffer, item.contentType);
+      await StorageService.saveFile(item.key, item.buffer, item.contentType);
       uploadedKeys.push(item.key);
     }
 
@@ -74,7 +86,7 @@ const uploadFiles = asyncHandler(async (req, res) => {
           category,
           storageKey: item.key,
           contentType: item.contentType,
-          sizeBytes: item.file.size,
+          sizeBytes: item.buffer.length,
           originalName: item.file.originalname,
           latitude,
           longitude,
