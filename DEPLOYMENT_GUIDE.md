@@ -322,6 +322,11 @@ server {
     listen 443 ssl http2;
     server_name your-domain.com www.your-domain.com;
 
+    # Required for POST /api/v1/uploads (up to 5 files x 5MB). nginx's default
+    # is 1MB: without this, larger uploads fail with nginx's own 413 HTML page
+    # before reaching the app.
+    client_max_body_size 30m;
+
     # SSL Certificates (use Let's Encrypt)
     ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
