@@ -170,6 +170,12 @@ const serveFile = asyncHandler(async (req, res) => {
   const signedUrl = await StorageService.getFileUrl(attachment.storageKey, SIGNED_URL_TTL_SECONDS);
 
   res.set('Cache-Control', `public, max-age=${REDIRECT_CACHE_SECONDS}`);
+  // helmet() sets Cross-Origin-Resource-Policy: same-origin on every response,
+  // which stops the browser rendering this in an <img> on any other origin
+  // (the frontend included) -- while still working when pasted in the address
+  // bar, since navigations aren't subject to CORP. Embedding is the point of
+  // this route, so relax it here and only here.
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
   return res.redirect(302, signedUrl);
 });
 
