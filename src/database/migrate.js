@@ -410,6 +410,23 @@ const alterFileAttachmentsAddPublicToken = `
 // meters.status, because jedController requires status = 'AVAILABLE' before a JED
 // installation. Putting 'ASSIGNED' in status would silently start rejecting JED
 // installations for any meter an Aba supervisor had assigned.
+// Meter prices are per disco: the same meter type ('Single Phase') can cost
+// different amounts at different discos. meter_types is created before discos
+// in runMigration, so the FK has to be added here, after discos exists.
+//
+// The partial unique index allows exactly one ACTIVE price per meter type per
+// disco, so a price lookup can never be ambiguous. Deactivated rows are
+// history and may repeat freely.
+//
+// disco_id is added nullable here; migrations/004-meter-types-per-disco.js
+// backfills existing rows and then sets it NOT NULL.
+const alterMeterTypesAddDisco = `
+  ALTER TABLE meter_types ADD COLUMN IF NOT EXISTS disco_id INTEGER REFERENCES discos(id);
+  CREATE INDEX IF NOT EXISTS idx_meter_types_disco ON meter_types(disco_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_meter_types_disco_active_name
+    ON meter_types (disco_id, upper(name)) WHERE is_active;
+`;
+
 const alterMetersAddAssignment = (uid) => `
   ALTER TABLE meters
     ADD COLUMN IF NOT EXISTS assignment_status VARCHAR(20) DEFAULT 'UNASSIGNED',
@@ -703,6 +720,8 @@ const runMigration = async (options = {}) => {
       JSON.stringify(ABA_POWER_EXPORT_TEMPLATE)
     ]);
     console.log('✅ Discos seeded (ABA_POWER, JED)');
+    await client.query(alterMeterTypesAddDisco);
+    console.log('✅ Ensured disco_id exists on meter_types');
 
     await client.query(createImportBatchesTable(userIdType));
     console.log('✅ Import batches table created');

@@ -105,16 +105,20 @@ const seedUsers = async () => {
       if (parseInt(meterTypesCount.rows[0].count, 10) === 0) {
         const superadminId = superadminResult.rows[0].id;
         const insertMeterType = `
-          INSERT INTO meter_types (name, amount, created_by)
-          VALUES ($1, $2, $3)
-          RETURNING id, name, amount;
+          INSERT INTO meter_types (disco_id, name, amount, created_by)
+          VALUES ($1, $2, $3, $4)
+          RETURNING id, disco_id, name, amount;
         `;
 
-        const singlePhase = await client.query(insertMeterType, ['Single Phase', 45000.00, superadminId]);
-        console.log('✅ Seeded meter type:', singlePhase.rows[0]);
-
-        const threePhase = await client.query(insertMeterType, ['Three Phase', 67000.00, superadminId]);
-        console.log('✅ Seeded meter type:', threePhase.rows[0]);
+        // Prices are per disco, so each seeded disco gets its own price list.
+        const discos = await client.query('SELECT id, code FROM discos ORDER BY id');
+        for (const disco of discos.rows) {
+          for (const [name, amount] of [['Single Phase', 45000.00], ['Three Phase', 67000.00]]) {
+            // eslint-disable-next-line no-await-in-loop
+            const seeded = await client.query(insertMeterType, [disco.id, name, amount, superadminId]);
+            console.log(`✅ Seeded meter type for ${disco.code}:`, seeded.rows[0]);
+          }
+        }
       } else {
         console.log('⚠️  Meter types already exist, skipping seed');
       }
