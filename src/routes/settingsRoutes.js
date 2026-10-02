@@ -16,7 +16,11 @@ const router = express.Router();
  * @swagger
  * /settings/meter-type:
  *   post:
- *     summary: Create a meter type
+ *     summary: Create a meter type price for one disco
+ *     description: >
+ *       Prices are per disco: the same meter type can cost different amounts at
+ *       different discos. Each disco can have only one active price per meter
+ *       type name; to change a price, PATCH it (or deactivate it first).
  *     tags: [Settings]
  *     security:
  *       - bearerAuth: []
@@ -26,15 +30,18 @@ const router = express.Router();
  *         application/json:
  *           schema:
  *             type: object
- *             required: [name, amount]
+ *             required: [discoCode, name, amount]
  *             properties:
- *               name:
- *                 type: string
- *               amount:
- *                 type: number
+ *               discoCode: { type: string, example: ABA_POWER }
+ *               name: { type: string, example: Single Phase }
+ *               amount: { type: number, example: 107500 }
  *     responses:
  *       201:
  *         description: Meter type created
+ *       404:
+ *         description: Disco not found
+ *       409:
+ *         description: This disco already has an active price for that meter type
  */
 router.post('/meter-type', authenticate, authorize(['SUPERADMIN', 'ADMIN']), validate(schemas.createMeterType), settingsController.createMeterType);
 
@@ -42,9 +49,15 @@ router.post('/meter-type', authenticate, authorize(['SUPERADMIN', 'ADMIN']), val
  * @swagger
  * /settings/meter-type:
  *   get:
- *     summary: List meter types
+ *     summary: List active meter type prices
+ *     description: >
+ *       Each item includes its discoCode. Pass discoCode to get one disco's price
+ *       list; without it, every disco's prices are returned together.
  *     tags: [Settings]
  *     parameters:
+ *       - in: query
+ *         name: discoCode
+ *         schema: { type: string, example: ABA_POWER }
  *       - in: query
  *         name: page
  *         schema:
@@ -56,8 +69,10 @@ router.post('/meter-type', authenticate, authorize(['SUPERADMIN', 'ADMIN']), val
  *     responses:
  *       200:
  *         description: List of meter types
+ *       404:
+ *         description: Disco not found
  */
-router.get('/meter-type', validateQuery(schemas.getListQuery), settingsController.getMeterTypes);
+router.get('/meter-type', validateQuery(schemas.meterTypeListQuery), settingsController.getMeterTypes);
 
 /**
  * @swagger
@@ -82,6 +97,9 @@ router.get('/meter-type/:id', settingsController.getMeterTypeById);
  * /settings/meter-type/{id}:
  *   patch:
  *     summary: Update meter type (partial)
+ *     description: >
+ *       Changes only this price, which belongs to one disco. The disco itself
+ *       can't be changed; create a price for the other disco instead.
  *     tags: [Settings]
  *     security:
  *       - bearerAuth: []
@@ -105,6 +123,8 @@ router.get('/meter-type/:id', settingsController.getMeterTypeById);
  *     responses:
  *       200:
  *         description: Meter type updated
+ *       409:
+ *         description: Renaming would duplicate an active price for the same disco
  */
 router.patch('/meter-type/:id', authenticate, authorize(['SUPERADMIN', 'ADMIN']), validate(schemas.updateMeterType), settingsController.updateMeterType);
 

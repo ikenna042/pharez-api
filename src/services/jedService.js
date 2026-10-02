@@ -17,7 +17,7 @@ class JedService {
     const merchantId = process.env.REMITA_MERCHANT_ID;
     const apiKey = process.env.REMITA_API_KEY;
     const serviceTypeId = process.env.REMITA_SERVICE_TYPE_ID;
-    const meterTypesData = await MeterType.findAll();
+    const meterTypesData = await MeterType.findAll({ discoCode: 'JED' });
     console.log('Fetched Meter Types:', meterTypesData);
     const orderId = Date.now().toString();
 

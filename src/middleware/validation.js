@@ -251,7 +251,11 @@ const validationSchemas = {
   ,
 
   // Meter type management
+  // Prices are per disco: the same meter type can cost different amounts at
+  // different discos, so every price must say which disco it's for.
   createMeterType: Joi.object({
+    discoCode: Joi.string().max(50).required().uppercase().trim()
+      .messages({ 'any.required': 'discoCode is required' }),
     name: Joi.string().min(1).max(200).required().trim()
       .messages({ 'string.empty': 'Name is required' }),
     amount: Joi.number().positive().required()
@@ -262,6 +266,12 @@ const validationSchemas = {
     name: Joi.string().min(1).max(200).optional().trim(),
     amount: Joi.number().positive().optional()
   }).min(1),
+
+  meterTypeListQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    discoCode: Joi.string().max(50).optional().uppercase().trim()
+  }),
 
   /* ---------------------------------------------------------------------
    * Multi-disco installation flow

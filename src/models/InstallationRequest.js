@@ -414,15 +414,17 @@ class InstallationRequest {
       // place with no history: valuing a past installation at today's price
       // would silently restate closed months.
       //
-      // meter_types.name is title case ('Single Phase') while
-      // installation_request.meter_type is upper case, hence upper(name).
-      // Duplicate active names are possible, so pick deterministically.
+      // Prices are per disco, so only this installation's disco's price list
+      // applies. meter_types.name is title case ('Single Phase') while
+      // installation_request.meter_type is upper case, hence upper(name). A
+      // partial unique index allows one active price per name per disco, so
+      // the ORDER BY is only a tiebreaker that should never be needed.
       const price = await client.query(
         `SELECT id, amount FROM meter_types
-         WHERE is_active = true AND upper(name) = upper($1)
+         WHERE is_active = true AND disco_id = $2 AND upper(name) = upper($1)
          ORDER BY created_at DESC, id DESC
          LIMIT 1`,
-        [request.meter_type]
+        [request.meter_type, request.disco_id]
       );
 
       const priceRow = price.rows[0] || null;
@@ -432,7 +434,7 @@ class InstallationRequest {
         // an admin deactivated a price is worse than a gap finance can see and
         // correct; the finance endpoints report these under missingAmountCount.
         console.warn(
-          `[revenue] no active meter_types price for "${request.meter_type}" ` +
+          `[revenue] no active meter_types price for "${request.meter_type}" (disco ${request.disco_id}) ` +
           `(installation_request ${requestId}); recording installation without an amount`
         );
       }
