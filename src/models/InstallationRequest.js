@@ -500,6 +500,112 @@ class InstallationRequest {
     return result.rows.length === 0 ? null : this.format(result.rows[0]);
   }
 
+  /**
+   * Undo a completed installation: the job goes back to PENDING and
+   * unassigned, its meter goes back to stock, and its revenue is cleared --
+   * as if it had never been assigned or installed.
+   *
+   * Only INSTALLED rows qualify. EXPORTED is refused: that work has already
+   * been reported to the disco, and silently reverting it would leave our
+   * records contradicting what they hold.
+   *
+   * Returns { request } on success, or { error } for the controller to map.
+   */
+  static async revertCompletion(id) {
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const found = await client.query(
+        'SELECT * FROM installation_request WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+      if (found.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { error: 'REQUEST_NOT_FOUND' };
+      }
+
+      const request = found.rows[0];
+      if (request.status === 'EXPORTED') {
+        await client.query('ROLLBACK');
+        return { error: 'ALREADY_EXPORTED' };
+      }
+      if (request.status !== 'INSTALLED') {
+        await client.query('ROLLBACK');
+        return { error: 'NOT_INSTALLED', status: request.status };
+      }
+
+      if (request.meter_id) {
+        // Close the meter's audit row the way AssignmentBatch.returnMeters does,
+        // then count it as returned on its dispatch batch. Additive rather than
+        // recomputed from meter_assignments: some older batches' returned_count
+        // predates their audit rows, and a recompute would overwrite it.
+        const audit = await client.query(
+          `UPDATE meter_assignments
+           SET status = 'RETURNED', released_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE meter_id = $1 AND status = 'USED'
+           RETURNING assignment_batch_id`,
+          [request.meter_id]
+        );
+
+        for (const { assignment_batch_id: batchId } of audit.rows) {
+          await client.query(
+            `UPDATE assignment_batches
+             SET returned_count = returned_count + 1,
+                 status = CASE
+                   WHEN returned_count + 1 >= item_count THEN 'CLOSED'
+                   ELSE 'PARTIALLY_RETURNED'
+                 END,
+                 closed_at = CASE WHEN returned_count + 1 >= item_count THEN CURRENT_TIMESTAMP ELSE closed_at END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [batchId]
+          );
+        }
+
+        await client.query(
+          `UPDATE meters
+           SET status = 'AVAILABLE', assignment_status = 'UNASSIGNED',
+               assigned_to = NULL, assigned_at = NULL,
+               assignment_batch_id = NULL, installation_request_id = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [request.meter_id]
+        );
+      }
+
+      // The symmetric undo of assignInstallations + recordInstallation. The
+      // job's INSTALLATION-type assignment batch is left alone, matching
+      // AssignmentBatch.unassignInstallations, which never touches it either.
+      const reverted = await client.query(
+        `UPDATE installation_request
+         SET status = 'PENDING',
+             assigned_to = NULL, assigned_by = NULL, assignment_batch_id = NULL,
+             assigned_at = NULL, started_at = NULL,
+             meter_id = NULL, meter_number = NULL, seal_number = NULL,
+             installation_date = NULL, latitude = NULL, longitude = NULL,
+             installation_photo_url = NULL, disco_supervisor = NULL,
+             installed_by = NULL, reported_at = NULL,
+             installation_notes = NULL, failure_reason = NULL,
+             payment_amount = NULL, payment_status = NULL, payment_source = NULL,
+             meter_type_id = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING *`,
+        [id]
+      );
+
+      await client.query('COMMIT');
+      return { request: this.format(reverted.rows[0]), meterNumber: request.meter_number };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   /** Rows for a disco's response sheet, with the installer's name resolved. */
   static async findForExport({ discoId, statuses = ['INSTALLED'], from, to }) {
     const params = [discoId, statuses];

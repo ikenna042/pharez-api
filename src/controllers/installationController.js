@@ -124,6 +124,33 @@ const cancelInstallation = asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Installation cancelled', data: cancelled });
 });
 
+const REVERT_FAILURES = {
+  REQUEST_NOT_FOUND: () => [404, 'Installation request not found'],
+  ALREADY_EXPORTED: () => [409, 'This installation has already been exported to the disco and cannot be reverted'],
+  NOT_INSTALLED: (r) => [400, `Only an INSTALLED installation can be reverted (this one is ${r.status})`]
+};
+
+const revertInstallation = asyncHandler(async (req, res) => {
+  const result = await InstallationRequest.revertCompletion(req.params.id);
+
+  if (result.error) {
+    const [status, message] = REVERT_FAILURES[result.error](result);
+    return res.status(status).json({ success: false, message });
+  }
+
+  console.warn(
+    `[installations] ${req.user.id} reverted installation ${req.params.id} to PENDING `
+    + `(meter ${result.meterNumber || 'none'} returned to stock)`
+    + (req.body.reason ? `: ${req.body.reason}` : '')
+  );
+
+  res.json({
+    success: true,
+    message: `Installation reverted to PENDING${result.meterNumber ? `; meter ${result.meterNumber} is available again` : ''}`,
+    data: result.request
+  });
+});
+
 /* --------------------------- installer --------------------------- */
 
 const getMyJobs = asyncHandler(async (req, res) => {
@@ -326,6 +353,7 @@ module.exports = {
   getInstallationStatistics,
   getInstallationById,
   cancelInstallation,
+  revertInstallation,
   getMyJobs,
   getMyMeters,
   startInstallation,

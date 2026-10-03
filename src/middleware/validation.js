@@ -477,6 +477,10 @@ const validationSchemas = {
     reason: Joi.string().max(1000).optional().allow('', null).trim()
   }),
 
+  revertInstallation: Joi.object({
+    reason: Joi.string().max(1000).optional().allow('', null).trim()
+  }),
+
   exportInstallationsQuery: Joi.object({
     from: Joi.date().iso().optional(),
     to: Joi.date().iso().optional(),
