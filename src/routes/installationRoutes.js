@@ -505,6 +505,51 @@ router.patch(
 
 /**
  * @swagger
+ * /installations/{id}/revert:
+ *   post:
+ *     summary: Undo a completed installation (SUPERADMIN only)
+ *     description: >
+ *       Puts an INSTALLED job back to PENDING and unassigned, returns its meter
+ *       to stock (AVAILABLE, unassigned), and clears its recorded revenue, as if
+ *       it had never been assigned or installed. Refused for EXPORTED jobs,
+ *       which have already been reported to the disco.
+ *     tags: [Installations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason: { type: string, example: Installed at the wrong address }
+ *     responses:
+ *       200:
+ *         description: Installation reverted to PENDING
+ *       400:
+ *         description: The installation is not INSTALLED
+ *       404:
+ *         description: Installation not found
+ *       409:
+ *         description: Already exported to the disco
+ */
+router.post(
+  '/:id/revert',
+  authenticate,
+  authorize(['SUPERADMIN']),
+  validateParams(schemas.idParam),
+  validate(schemas.revertInstallation),
+  installationController.revertInstallation
+);
+
+/**
+ * @swagger
  * /installations/{id}:
  *   get:
  *     summary: Get one installation request
