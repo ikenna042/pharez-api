@@ -78,7 +78,7 @@ const router = express.Router();
  *       500:
  *         description: Server error
  */
-router.post('/upload', authenticate, authorize('SUPERADMIN', 'ADMIN'), upload.single('file'), meterController.uploadMeters);
+router.post('/upload', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']), upload.single('file'), meterController.uploadMeters);
 
 /**
  * @swagger
@@ -135,7 +135,7 @@ router.get('/template', authenticate, meterController.downloadMeterTemplate);
  *       401:
  *         description: Authentication required
  */
-router.get('/export', authenticate, authorize('SUPERADMIN', 'ADMIN'), meterController.exportMeters);
+router.get('/export', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']), meterController.exportMeters);
 
 /**
  * @swagger
@@ -262,7 +262,7 @@ router.get('/', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'INSTALLER', 'SU
  *       401:
  *         description: Authentication required
  */
-router.get('/statistics', authenticate, authorize('SUPERADMIN', 'ADMIN'), meterController.getMeterStatistics);
+router.get('/statistics', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']), meterController.getMeterStatistics);
 
 /**
  * @swagger
