@@ -40,7 +40,7 @@ const router = express.Router();
 router.get(
   '/',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateQuery(schemas.getImportBatchesQuery),
   importController.listImportBatches
 );
@@ -133,7 +133,7 @@ router.get(
 router.post(
   '/:discoCode/pending-installations',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateParams(schemas.discoCodeParam),
   upload.single('file'),
   importController.importPendingInstallations
@@ -175,7 +175,7 @@ router.post(
 router.post(
   '/:discoCode/meters',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateParams(schemas.discoCodeParam),
   upload.single('file'),
   importController.importMeterInventory
@@ -203,7 +203,7 @@ router.post(
 router.get(
   '/:id',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateParams(schemas.idParam),
   importController.getImportBatch
 );
@@ -237,7 +237,7 @@ router.get(
 router.post(
   '/:id/undo',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN']),
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
   validateParams(schemas.idParam),
   importController.undoImportBatch
 );
