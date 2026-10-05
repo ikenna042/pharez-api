@@ -33,7 +33,7 @@ class Meter {
   }
 
   static async findAll(options = {}) {
-    const { page = 1, limit = 10, status, phaseType, search } = options;
+    const { page = 1, limit = 10, status, phaseType, search, discoIds = null } = options;
     const offset = (page - 1) * limit;
 
     let query = 'SELECT * FROM meters WHERE 1=1';
@@ -56,6 +56,13 @@ class Meter {
       paramCount++;
       query += ` AND (meter_number ILIKE $${paramCount} OR sim_number ILIKE $${paramCount})`;
       queryParams.push(`%${search}%`);
+    }
+
+    // null = every disco; [] = none (a scoped user with no discos).
+    if (discoIds) {
+      paramCount++;
+      query += ` AND disco_id = ANY($${paramCount}::int[])`;
+      queryParams.push(discoIds);
     }
 
       query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
@@ -86,6 +93,12 @@ class Meter {
       countParams.push(`%${search}%`);
     }
 
+    if (discoIds) {
+      countParamCount++;
+      countQuery += ` AND disco_id = ANY($${countParamCount}::int[])`;
+      countParams.push(discoIds);
+    }
+
     const countResult = await pool.query(countQuery, countParams);
     const totalCount = parseInt(countResult.rows[0].count);
 
@@ -101,27 +114,28 @@ class Meter {
     };
   }
 
-  static async create(data, uploadedBy = null) {
+  static async create(data, uploadedBy = null, discoId) {
     const { meterNumber, simNumber, manufacturedDate, meterMake, model, phaseType, sgcNumber } = data;
 
     const query = `
       INSERT INTO meters (
         meter_number, sim_number, manufactured_date, meter_make, model, 
-        phase_type, sgc_number, status, uploaded_by
+        phase_type, sgc_number, status, uploaded_by, disco_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'AVAILABLE', $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'AVAILABLE', $8, $9)
       RETURNING *
     `;
 
     const result = await pool.query(query, [
       meterNumber, simNumber, manufacturedDate, meterMake, 
-      model, phaseType, sgcNumber, uploadedBy
+      model, phaseType, sgcNumber, uploadedBy, discoId
     ]);
     
     return this.formatMeter(result.rows[0]);
   }
 
-  static async bulkCreate(metersData, uploadedBy = null) {
+  /** Every meter belongs to one disco's stock, so discoId is required. */
+  static async bulkCreate(metersData, uploadedBy = null, discoId) {
     const client = await pool.connect();
     const createdMeters = [];
     const errors = [];
@@ -151,9 +165,9 @@ class Meter {
           const query = `
             INSERT INTO meters (
               meter_number, sim_number, manufactured_date, meter_make, model, 
-              phase_type, sgc_number, status, uploaded_by
+              phase_type, sgc_number, status, uploaded_by, disco_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'AVAILABLE', $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'AVAILABLE', $8, $9)
             RETURNING *
           `;
 
@@ -165,7 +179,8 @@ class Meter {
             meterData.model,
             meterData.phaseType,
             meterData.sgcNumber,
-            uploadedBy
+            uploadedBy,
+            discoId
           ]);
 
           createdMeters.push(this.formatMeter(result.rows[0]));
@@ -205,10 +220,10 @@ class Meter {
    * Here each chunk is savepointed and ON CONFLICT lets an already-known serial
    * count as skipped rather than as an error. Must be given an open transaction.
    */
-  static async bulkCreateFromImport(rows, { client, uploadedBy = null, importBatchId = null }) {
+  static async bulkCreateFromImport(rows, { client, discoId, uploadedBy = null, importBatchId = null }) {
     const columns = [
       'meter_number', 'sim_number', 'manufactured_date', 'meter_make', 'model',
-      'phase_type', 'phase_type_raw', 'sgc_number', 'status', 'uploaded_by', 'import_batch_id'
+      'phase_type', 'phase_type_raw', 'sgc_number', 'status', 'uploaded_by', 'import_batch_id', 'disco_id'
     ];
 
     const created = [];
@@ -227,7 +242,8 @@ class Meter {
       row.sgcNumber ?? null,
       'AVAILABLE',
       uploadedBy,
-      importBatchId
+      importBatchId,
+      discoId
     ];
 
     const insertChunk = async (chunk, offset) => {
@@ -480,7 +496,7 @@ class Meter {
     return result.rows.map(row => this.formatMeter(row));
   }
 
-  static async getStatistics() {
+  static async getStatistics({ discoIds = null } = {}) {
     const query = `
       SELECT 
         COUNT(*) as total_meters,
@@ -491,9 +507,10 @@ class Meter {
         COUNT(*) FILTER (WHERE phase_type = 'SINGLE PHASE') as single_phase,
         COUNT(*) FILTER (WHERE phase_type = 'THREE PHASE') as three_phase
       FROM meters
+      ${discoIds ? 'WHERE disco_id = ANY($1::int[])' : ''}
     `;
 
-    const result = await pool.query(query);
+    const result = await pool.query(query, discoIds ? [discoIds] : []);
     const stats = result.rows[0];
 
     return {
@@ -518,6 +535,7 @@ class Meter {
 
     return {
       id: dbRow.id,
+      discoId: dbRow.disco_id,
       meterNumber: dbRow.meter_number,
       simNumber: dbRow.sim_number,
       manufacturedDate: dbRow.manufactured_date,

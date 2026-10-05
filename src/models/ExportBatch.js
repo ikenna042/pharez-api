@@ -42,14 +42,20 @@ class ExportBatch {
     return result.rows.length === 0 ? null : this.format(result.rows[0]);
   }
 
-  static async findAll({ page = 1, limit = 20, discoId } = {}) {
+  static async findAll({ page = 1, limit = 20, discoId, discoIds = null } = {}) {
     const params = [];
-    let where = '';
+    const filters = [];
 
     if (discoId) {
       params.push(discoId);
-      where = `WHERE b.disco_id = $${params.length}`;
+      filters.push(`b.disco_id = $${params.length}`);
     }
+    // null = every disco; [] = none (a scoped user with no discos).
+    if (discoIds) {
+      params.push(discoIds);
+      filters.push(`b.disco_id = ANY($${params.length}::int[])`);
+    }
+    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
 
     const countResult = await pool.query(`SELECT COUNT(*) FROM export_batches b ${where}`, params);
     const totalCount = parseInt(countResult.rows[0].count, 10);

@@ -1,15 +1,11 @@
-const Disco = require('../models/Disco');
 const ImportBatch = require('../models/ImportBatch');
 const DiscoImportService = require('../services/discoImportService');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { canAccessDisco, resolveAccessibleDisco, resolveListScope } = require('../utils/discoAccess');
 
-const loadDisco = async (res, discoCode) => {
-  const disco = await Disco.findByCode(discoCode);
-
-  if (!disco) {
-    res.status(404).json({ success: false, message: `Disco ${discoCode} not found` });
-    return null;
-  }
+const loadDisco = async (req, res, discoCode) => {
+  const disco = await resolveAccessibleDisco(req, res, discoCode);
+  if (!disco) return null;
 
   if (!disco.isActive) {
     res.status(400).json({ success: false, message: `Disco ${disco.code} is not active` });
@@ -42,7 +38,7 @@ const respondToImport = (res, batch) => {
 };
 
 const importPendingInstallations = asyncHandler(async (req, res) => {
-  const disco = await loadDisco(res, req.params.discoCode);
+  const disco = await loadDisco(req, res, req.params.discoCode);
   if (!disco || !requireFile(req, res)) return;
 
   const batch = await DiscoImportService.importPendingInstallations({
@@ -57,7 +53,7 @@ const importPendingInstallations = asyncHandler(async (req, res) => {
 });
 
 const importMeterInventory = asyncHandler(async (req, res) => {
-  const disco = await loadDisco(res, req.params.discoCode);
+  const disco = await loadDisco(req, res, req.params.discoCode);
   if (!disco || !requireFile(req, res)) return;
 
   const batch = await DiscoImportService.importMeterInventory({
@@ -74,19 +70,13 @@ const importMeterInventory = asyncHandler(async (req, res) => {
 const listImportBatches = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, discoCode, importType, status } = req.validatedQuery || req.query;
 
-  let discoId;
-  if (discoCode) {
-    const disco = await Disco.findByCode(discoCode);
-    if (!disco) {
-      return res.status(404).json({ success: false, message: `Disco ${discoCode} not found` });
-    }
-    discoId = disco.id;
-  }
+  const scope = await resolveListScope(req, res, discoCode);
+  if (!scope) return;
 
   const { batches, pagination } = await ImportBatch.findAll({
     page: Number(page),
     limit: Number(limit),
-    discoId,
+    discoIds: scope.discoIds,
     importType,
     status
   });
@@ -97,7 +87,8 @@ const listImportBatches = asyncHandler(async (req, res) => {
 const getImportBatch = asyncHandler(async (req, res) => {
   const batch = await ImportBatch.findById(req.params.id);
 
-  if (!batch) {
+  // Outside the caller's discos reads as not found, so its existence isn't confirmed.
+  if (!batch || !canAccessDisco(req.user, batch.discoId)) {
     return res.status(404).json({ success: false, message: 'Import batch not found' });
   }
 
@@ -107,7 +98,7 @@ const getImportBatch = asyncHandler(async (req, res) => {
 const undoImportBatch = asyncHandler(async (req, res) => {
   const batch = await ImportBatch.findById(req.params.id);
 
-  if (!batch) {
+  if (!batch || !canAccessDisco(req.user, batch.discoId)) {
     return res.status(404).json({ success: false, message: 'Import batch not found' });
   }
 
@@ -132,13 +123,13 @@ const sendTemplate = async (res, disco, importType, label) => {
 };
 
 const downloadPendingInstallationTemplate = asyncHandler(async (req, res) => {
-  const disco = await loadDisco(res, req.params.discoCode);
+  const disco = await loadDisco(req, res, req.params.discoCode);
   if (!disco) return;
   return sendTemplate(res, disco, 'pendingInstallations', 'pending_installations');
 });
 
 const downloadMeterInventoryTemplate = asyncHandler(async (req, res) => {
-  const disco = await loadDisco(res, req.params.discoCode);
+  const disco = await loadDisco(req, res, req.params.discoCode);
   if (!disco) return;
   return sendTemplate(res, disco, 'meterInventory', 'meter_inventory');
 });

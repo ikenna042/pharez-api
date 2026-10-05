@@ -21,7 +21,14 @@ const validationSchemas = {
     //     'string.pattern.base': 'Password must contain at least one lowercase letter, one uppercase letter, and one number'
     //   }),
     homeAddress: Joi.string().max(500).optional().trim(),
-    officeAddress: Joi.string().max(500).optional().trim()
+    officeAddress: Joi.string().max(500).optional().trim(),
+    // Discos the new user works in. Omitted: an ADMIN's new user gets the
+    // ADMIN's own discos; a SUPERADMIN's gets none until granted.
+    discoCodes: Joi.array().items(Joi.string().trim().uppercase()).max(20).optional()
+  }),
+
+  setUserDiscos: Joi.object({
+    discoCodes: Joi.array().items(Joi.string().trim().uppercase()).max(20).required()
   }),
 
   updateUser: Joi.object({
@@ -217,7 +224,8 @@ const validationSchemas = {
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(20),
     status: Joi.string().valid('AVAILABLE', 'INSTALLED', 'FAULTY', 'RETIRED').optional(),
-    phaseType: Joi.string().valid('SINGLE PHASE', 'THREE PHASE').optional()
+    phaseType: Joi.string().valid('SINGLE PHASE', 'THREE PHASE').optional(),
+    discoCode: Joi.string().trim().uppercase().optional()
   }),
 
   installationSearchQuery: Joi.object({
@@ -235,7 +243,8 @@ const validationSchemas = {
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(20),
     role: Joi.string().valid('SUPERADMIN', 'ADMIN', 'SUPERVISOR', 'INSTALLER').optional(),
-    includeInactive: Joi.boolean().default(false)
+    includeInactive: Joi.boolean().default(false),
+    discoCode: Joi.string().trim().uppercase().optional()
   }),
 
   // API Key management

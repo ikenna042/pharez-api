@@ -126,7 +126,7 @@ class User {
   // (findById also defaults to excluding them), so there'd be no way to look
   // one up again in order to restore them.
   static async findAll(options = {}) {
-    const { page = 1, limit = 10, role, search, includeInactive = false } = options;
+    const { page = 1, limit = 10, role, search, includeInactive = false, discoIds = null } = options;
     const offset = (page - 1) * limit;
 
     let query = `
@@ -157,6 +157,13 @@ class User {
       queryParams.push(`%${search}%`);
     }
 
+    // Scoped callers only see users who share at least one of their discos.
+    if (discoIds) {
+      paramCount++;
+      query += ` AND EXISTS (SELECT 1 FROM user_discos ud WHERE ud.user_id = users.id AND ud.disco_id = ANY($${paramCount}::int[]))`;
+      queryParams.push(discoIds);
+    }
+
     query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
     queryParams.push(limit, offset);
 
@@ -181,6 +188,12 @@ class User {
         phone ILIKE $${countParamCount}
       )`;
       countParams.push(`%${search}%`);
+    }
+
+    if (discoIds) {
+      countParamCount++;
+      countQuery += ` AND EXISTS (SELECT 1 FROM user_discos ud WHERE ud.user_id = users.id AND ud.disco_id = ANY($${countParamCount}::int[]))`;
+      countParams.push(discoIds);
     }
 
     const countResult = await pool.query(countQuery, countParams);
@@ -211,7 +224,7 @@ class User {
       if (allowedFields.includes(key) && value !== undefined) {
         paramCount++;
         const dbField = this.camelToSnake(key);
-        updates.push(`${dbField} = ${paramCount}`);
+        updates.push(`${dbField} = $${paramCount}`);
         values.push(value);
       }
     }
@@ -221,7 +234,7 @@ class User {
     }
 
     paramCount++;
-    updates.push(`updated_at = ${paramCount}`);
+    updates.push(`updated_at = $${paramCount}`);
     values.push(new Date());
 
     paramCount++;
@@ -230,7 +243,7 @@ class User {
     const query = `
       UPDATE users
       SET ${updates.join(', ')}
-      WHERE id = ${paramCount} AND is_active = true
+      WHERE id = $${paramCount} AND is_active = true
       RETURNING id, first_name, last_name, role, nin, phone, email,
                 home_address, office_address, is_active, created_at, updated_at
     `;
@@ -316,6 +329,61 @@ class User {
       createdAt: dbUser.created_at,
       updatedAt: dbUser.updated_at
     };
+  }
+
+  /** The discos a user is profiled for, as [{ id, code, name }]. */
+  static async getDiscos(userId, client = pool) {
+    const result = await client.query(
+      `SELECT d.id, d.code, d.name FROM user_discos ud
+       JOIN discos d ON d.id = ud.disco_id
+       WHERE ud.user_id = $1 ORDER BY d.code`,
+      [userId]
+    );
+    return result.rows;
+  }
+
+  /** Adds `discos: [{ code, name }]` to each formatted user, in one query. */
+  static async attachDiscos(users) {
+    const list = (Array.isArray(users) ? users : [users]).filter(Boolean);
+    if (list.length === 0) return users;
+
+    const result = await pool.query(
+      `SELECT ud.user_id, d.code, d.name FROM user_discos ud
+       JOIN discos d ON d.id = ud.disco_id
+       WHERE ud.user_id = ANY($1::uuid[]) ORDER BY d.code`,
+      [list.map((u) => u.id)]
+    );
+
+    const byUser = {};
+    result.rows.forEach((r) => {
+      (byUser[r.user_id] = byUser[r.user_id] || []).push({ code: r.code, name: r.name });
+    });
+    list.forEach((u) => { u.discos = byUser[u.id] || []; });
+    return users;
+  }
+
+  /** Replaces the user's disco set with exactly these discos. */
+  static async setDiscos(userId, discoIds, grantedBy = null, client = null) {
+    // Delete-then-insert must not be seen half done, so it runs in its own
+    // transaction unless the caller already holds one.
+    const conn = client || await pool.connect();
+    try {
+      if (!client) await conn.query('BEGIN');
+      await conn.query('DELETE FROM user_discos WHERE user_id = $1', [userId]);
+      if (discoIds.length > 0) {
+        await conn.query(
+          `INSERT INTO user_discos (user_id, disco_id, granted_by)
+           SELECT $1, unnest($2::int[]), $3`,
+          [userId, discoIds, grantedBy]
+        );
+      }
+      if (!client) await conn.query('COMMIT');
+    } catch (error) {
+      if (!client) await conn.query('ROLLBACK');
+      throw error;
+    } finally {
+      if (!client) conn.release();
+    }
   }
 
   static camelToSnake(str) {

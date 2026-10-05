@@ -28,6 +28,12 @@ const authenticate = async (req, res, next) => {
         });
       }
 
+      // Which discos this user may act on; see src/utils/discoAccess.js.
+      // SUPERADMIN sees every disco, so its list isn't loaded.
+      if (user.role !== 'SUPERADMIN') {
+        user.discoIds = (await User.getDiscos(user.id)).map((d) => d.id);
+      }
+
       // Add user to request object
       req.user = user;
       next();

@@ -3,9 +3,24 @@ const FileAttachment = require('../models/FileAttachment');
 const StorageService = require('../services/storageService');
 const ImageCompressionService = require('../services/imageCompressionService');
 const { allowedTypesForCategory, EXTENSION_BY_MIME, IMAGE_MIME_TYPES } = require('../config/multerAttachments');
+const InstallationRequest = require('../models/InstallationRequest');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { canAccessDisco } = require('../utils/discoAccess');
 
 const ADMIN_ROLES = ['SUPERADMIN', 'ADMIN', 'SUPERVISOR'];
+
+/**
+ * Files attached to an installation follow that installation's disco: a
+ * caller outside it can't attach to, list, view or delete them. Other entity
+ * types carry no disco and stay open. The public /files/:token link is not
+ * affected.
+ */
+const canAccessEntity = async (user, entityType, entityId) => {
+  if (String(entityType || '').toLowerCase() !== 'installation' || !entityId) return true;
+  if (!/^\d+$/.test(String(entityId))) return true;
+  const request = await InstallationRequest.findById(entityId);
+  return !request || canAccessDisco(user, request.discoId);
+};
 
 /**
  * Identify a file from its bytes, not from what the client claimed.
@@ -41,6 +56,10 @@ const uploadFiles = asyncHandler(async (req, res) => {
   }
 
   const { category, entityType, entityId, latitude, longitude, capturedAt } = req.body;
+
+  if (!(await canAccessEntity(req.user, entityType, entityId))) {
+    return res.status(404).json({ success: false, message: 'Installation request not found' });
+  }
 
   // Every file is verified before anything is written, so a bad file in the
   // batch cannot leave earlier ones already stored.
@@ -127,6 +146,10 @@ const listUploads = asyncHandler(async (req, res) => {
     });
   }
 
+  if (!(await canAccessEntity(req.user, q.entityType, q.entityId))) {
+    return res.json({ success: true, data: [] });
+  }
+
   const attachments = await FileAttachment.findByEntity(q.entityType, q.entityId, {
     category: q.category
   });
@@ -137,7 +160,7 @@ const listUploads = asyncHandler(async (req, res) => {
 const getUpload = asyncHandler(async (req, res) => {
   const attachment = await FileAttachment.findById(req.params.id);
 
-  if (!attachment) {
+  if (!attachment || !(await canAccessEntity(req.user, attachment.entityType, attachment.entityId))) {
     return res.status(404).json({ success: false, message: 'File not found' });
   }
 
@@ -184,7 +207,7 @@ const deleteUpload = asyncHandler(async (req, res) => {
 
   const attachment = await FileAttachment.findById(req.params.id);
 
-  if (!attachment) {
+  if (!attachment || !(await canAccessEntity(req.user, attachment.entityType, attachment.entityId))) {
     return res.status(404).json({ success: false, message: 'File not found' });
   }
 

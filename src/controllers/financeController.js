@@ -1,15 +1,30 @@
 const FinanceRevenue = require('../models/FinanceRevenue');
+const { allowedDiscoCodes } = require('../utils/discoAccess');
 const { resolveRange } = require('../utils/financeFilters');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 const CURRENCY = 'NGN';
 
 /**
- * Resolve the shared filters, or send a 400.
+ * Disco codes the caller may see revenue for: null (every disco) for
+ * SUPERADMIN. Sends a 403 and returns false when a requested discoCode is
+ * outside them.
+ */
+const resolveFinanceDiscos = async (req, res, discoCode) => {
+  const codes = await allowedDiscoCodes(req.user);
+  if (codes && discoCode && !codes.includes(String(discoCode).toUpperCase())) {
+    res.status(403).json({ success: false, message: `You don't have access to ${String(discoCode).toUpperCase()}` });
+    return false;
+  }
+  return codes;
+};
+
+/**
+ * Resolve the shared filters, or send a 400/403.
  *
  * Returns null once a response has been sent, so callers `if (!f) return;`.
  */
-const resolveFilters = (req, res) => {
+const resolveFilters = async (req, res) => {
   const q = req.validatedQuery || req.query;
   const range = resolveRange({ from: q.from, to: q.to, rangePreset: q.rangePreset });
 
@@ -18,11 +33,15 @@ const resolveFilters = (req, res) => {
     return null;
   }
 
+  const discoCodes = await resolveFinanceDiscos(req, res, q.discoCode);
+  if (discoCodes === false) return null;
+
   return {
     query: q,
     range,
     filters: {
       discoCode: q.discoCode,
+      discoCodes,
       meterType: q.meterType,
       from: range.from,
       to: range.to,
@@ -38,7 +57,7 @@ const describeRange = (range) => ({
 });
 
 const getRevenueSummary = asyncHandler(async (req, res) => {
-  const resolved = resolveFilters(req, res);
+  const resolved = await resolveFilters(req, res);
   if (!resolved) return;
 
   const summary = await FinanceRevenue.summary(resolved.filters);
@@ -54,7 +73,7 @@ const getRevenueSummary = asyncHandler(async (req, res) => {
 });
 
 const getRevenueBreakdown = asyncHandler(async (req, res) => {
-  const resolved = resolveFilters(req, res);
+  const resolved = await resolveFilters(req, res);
   if (!resolved) return;
 
   const breakdown = await FinanceRevenue.breakdown(
@@ -73,7 +92,7 @@ const getRevenueBreakdown = asyncHandler(async (req, res) => {
 });
 
 const getRevenueTransactions = asyncHandler(async (req, res) => {
-  const resolved = resolveFilters(req, res);
+  const resolved = await resolveFilters(req, res);
   if (!resolved) return;
 
   const { query } = resolved;

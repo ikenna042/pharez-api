@@ -38,10 +38,12 @@ const register = asyncHandler(async (req, res) => {
     });
   }
 
+  // Self-registration is public, so it never grants a role or any disco.
+  // Staff are created through POST /users and given discos there.
   const user = await User.create({
     firstName,
     lastName,
-    role,
+    role: 'INSTALLER',
     nin,
     phone,
     email,
@@ -85,6 +87,7 @@ const login = asyncHandler(async (req, res) => {
 
   // Remove password hash from user object
   delete user.passwordHash;
+  await User.attachDiscos(user);
 
   // Generate token
   const token = generateToken(user);
@@ -103,13 +106,17 @@ const getProfile = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'User profile retrieved successfully',
-    data: req.user
+    data: await User.attachDiscos(req.user)
   });
 });
 
 const updateProfile = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const updateData = req.body;
+  // Nobody changes their own role.
+  const { role, ...updateData } = req.body;
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ success: false, message: 'Nothing to update' });
+  }
 
   if (updateData.email) {
     const existingUser = await User.findByEmail(updateData.email);

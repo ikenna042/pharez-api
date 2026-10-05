@@ -1,8 +1,39 @@
 const User = require('../models/User');
+const Disco = require('../models/Disco');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { isUnrestricted, resolveListScope } = require('../utils/discoAccess');
+
+const userNotFound = (res) => res.status(404).json({ success: false, message: 'User not found' });
+
+/**
+ * A scoped caller only sees users who share at least one of its discos (and
+ * always itself). Anyone else reads as not found.
+ */
+const sharesDisco = async (currentUser, targetUserId) => {
+  if (isUnrestricted(currentUser) || currentUser.id === targetUserId) return true;
+  const theirs = await User.getDiscos(targetUserId);
+  return theirs.some((d) => (currentUser.discoIds || []).includes(d.id));
+};
+
+/**
+ * Turns discoCodes into disco rows. Sends a 404 for an unknown code and
+ * returns null.
+ */
+const loadDiscosByCode = async (res, discoCodes) => {
+  const discos = [];
+  for (const code of [...new Set(discoCodes)]) {
+    const disco = await Disco.findByCode(code);
+    if (!disco) {
+      res.status(404).json({ success: false, message: `Disco ${code} not found` });
+      return null;
+    }
+    discos.push(disco);
+  }
+  return discos;
+};
 
 const getUsers = asyncHandler(async (req, res) => {
-  const { page, limit, role, search } = req.query;
+  const { page, limit, role, search, discoCode } = req.query;
   const currentUser = req.user;
 
   // Define access rules
@@ -41,7 +72,13 @@ const getUsers = asyncHandler(async (req, res) => {
     queryOptions.role = 'INSTALLER';
   }
 
+  // Only users profiled for a disco the caller can see.
+  const scope = await resolveListScope(req, res, discoCode);
+  if (!scope) return;
+  queryOptions.discoIds = scope.discoIds;
+
   const result = await User.findAll(queryOptions);
+  await User.attachDiscos(result.users);
 
   // For ADMIN, filter out other ADMINs and SUPERADMINs (except themselves)
   if (currentUser.role === 'ADMIN') {
@@ -77,13 +114,8 @@ const getUserById = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(requestedUserId);
-  
-  if (!user) {
-    return res.status(404).json({
-      success: false,
-      message: 'User not found'
-    });
-  }
+
+  if (!user || !(await sharesDisco(currentUser, user.id))) return userNotFound(res);
 
   // ADMIN can only see INSTALLER users and themselves
   if (currentUser.role === 'ADMIN') {
@@ -106,7 +138,7 @@ const getUserById = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'User retrieved successfully',
-    data: user
+    data: await User.attachDiscos(user)
   });
 });
 
@@ -119,7 +151,8 @@ const createUser = asyncHandler(async (req, res) => {
     phone,
     email,
     homeAddress,
-    officeAddress
+    officeAddress,
+    discoCodes
   } = req.body;
 
   const currentUser = req.user;
@@ -138,6 +171,22 @@ const createUser = asyncHandler(async (req, res) => {
         message: 'Admins can only create INSTALLER or ADMIN users'
       });
     }
+  }
+
+  // Which discos the new user works in. SUPERADMIN may grant any. An ADMIN's
+  // new user defaults to the ADMIN's own discos and may be narrowed to a
+  // subset of them, never widened.
+  let discoIds = [];
+  if (discoCodes && discoCodes.length > 0) {
+    const discos = await loadDiscosByCode(res, discoCodes);
+    if (!discos) return;
+    const outside = discos.find((d) => !isUnrestricted(currentUser) && !currentUser.discoIds.includes(d.id));
+    if (outside) {
+      return res.status(403).json({ success: false, message: `You don't have access to ${outside.code}` });
+    }
+    discoIds = discos.map((d) => d.id);
+  } else if (!isUnrestricted(currentUser)) {
+    discoIds = currentUser.discoIds;
   }
 
   const [existingPhone, existingEmail, existingNin] = await Promise.all([
@@ -179,10 +228,15 @@ const createUser = asyncHandler(async (req, res) => {
     officeAddress
   });
 
+  // A SUPERADMIN account sees every disco regardless, so it isn't profiled.
+  if (user.role !== 'SUPERADMIN' && discoIds.length > 0) {
+    await User.setDiscos(user.id, discoIds, currentUser.id);
+  }
+
   res.status(201).json({
     success: true,
     message: 'User created successfully',
-    data: user
+    data: await User.attachDiscos(user)
   });
 });
 
@@ -193,12 +247,7 @@ const updateUser = asyncHandler(async (req, res) => {
   const targetUserId = id; // UUID string
 
   const targetUser = await User.findById(targetUserId);
-  if (!targetUser) {
-    return res.status(404).json({
-      success: false,
-      message: 'User not found'
-    });
-  }
+  if (!targetUser || !(await sharesDisco(currentUser, targetUserId))) return userNotFound(res);
 
   if (currentUser.role === 'INSTALLER' || currentUser.role === 'SUPERVISOR') {
     if (currentUser.id !== targetUserId) {
@@ -219,12 +268,17 @@ const updateUser = asyncHandler(async (req, res) => {
       });
     }
     
-    if (updateData.role === 'SUPERADMIN') {
+    // Only SUPERADMIN creates supervisors and superadmins, by any route.
+    if (updateData.role && !['INSTALLER', 'ADMIN'].includes(updateData.role)) {
       return res.status(403).json({
         success: false,
-        message: 'Cannot promote user to SUPERADMIN'
+        message: 'Admins can only set the INSTALLER or ADMIN role'
       });
     }
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ success: false, message: 'Nothing to update' });
   }
 
   if (updateData.email) {
@@ -242,7 +296,7 @@ const updateUser = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'User updated successfully',
-    data: updatedUser
+    data: await User.attachDiscos(updatedUser)
   });
 });
 
@@ -259,12 +313,7 @@ const deleteUser = asyncHandler(async (req, res) => {
   }
 
   const targetUser = await User.findById(targetUserId);
-  if (!targetUser) {
-    return res.status(404).json({
-      success: false,
-      message: 'User not found'
-    });
-  }
+  if (!targetUser || !(await sharesDisco(currentUser, targetUserId))) return userNotFound(res);
 
   if (currentUser.role === 'INSTALLER') {
     return res.status(403).json({
@@ -319,12 +368,7 @@ const restoreUser = asyncHandler(async (req, res) => {
   // includeInactive: true because the whole point is finding a currently
   // deactivated user -- the default findById would never see them.
   const targetUser = await User.findById(id, true);
-  if (!targetUser) {
-    return res.status(404).json({
-      success: false,
-      message: 'User not found'
-    });
-  }
+  if (!targetUser || !(await sharesDisco(currentUser, id))) return userNotFound(res);
 
   if (currentUser.role === 'ADMIN' && targetUser.role !== 'INSTALLER') {
     return res.status(403).json({
@@ -345,7 +389,7 @@ const restoreUser = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'User restored successfully',
-    data: await User.findById(id)
+    data: await User.attachDiscos(await User.findById(id))
   });
 });
 
@@ -391,7 +435,12 @@ const searchUsers = asyncHandler(async (req, res) => {
     queryOptions.role = 'INSTALLER';
   }
 
+  const scope = await resolveListScope(req, res, q.discoCode);
+  if (!scope) return;
+  queryOptions.discoIds = scope.discoIds;
+
   const result = await User.findAll(queryOptions);
+  await User.attachDiscos(result.users);
 
   if (currentUser.role === 'ADMIN') {
     result.users = result.users.filter(user =>
@@ -412,7 +461,42 @@ const searchUsers = asyncHandler(async (req, res) => {
   });
 });
 
+/** Replaces a user's disco set. SUPERADMIN only (enforced on the route). */
+const setUserDiscos = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const targetUser = await User.findById(id);
+  if (!targetUser) return userNotFound(res);
+
+  if (targetUser.role === 'SUPERADMIN') {
+    return res.status(400).json({
+      success: false,
+      message: 'A SUPERADMIN already sees every disco and is not profiled'
+    });
+  }
+
+  const discos = await loadDiscosByCode(res, req.body.discoCodes);
+  if (!discos) return;
+
+  const before = (await User.getDiscos(id)).map((d) => d.code);
+  await User.setDiscos(id, discos.map((d) => d.id), req.user.id);
+  const after = discos.map((d) => d.code).sort();
+
+  console.warn(
+    `[users] ${req.user.id} changed discos for ${id} from [${before.join(', ')}] to [${after.join(', ')}]`
+  );
+
+  res.json({
+    success: true,
+    message: after.length > 0
+      ? `${targetUser.firstName} ${targetUser.lastName} now works in ${after.join(', ')}`
+      : `${targetUser.firstName} ${targetUser.lastName} no longer has access to any disco`,
+    data: await User.attachDiscos(targetUser)
+  });
+});
+
 module.exports = {
+  setUserDiscos,
   getUsers,
   getUserById,
   createUser,

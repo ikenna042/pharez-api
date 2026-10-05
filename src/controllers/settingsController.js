@@ -1,6 +1,20 @@
 const { asyncHandler } = require('../middleware/errorHandler');
 const MeterType = require('../models/MeterType');
 const Disco = require('../models/Disco');
+const { canAccessDisco, resolveAccessibleDisco } = require('../utils/discoAccess');
+
+/**
+ * A price an ADMIN may change: one in a disco it's profiled for. Anything
+ * else reads as not found. Sends the 404 and returns null.
+ */
+const loadWritableMeterType = async (req, res) => {
+  const mt = await MeterType.findById(parseInt(req.params.id, 10));
+  if (!mt || !canAccessDisco(req.user, mt.discoId)) {
+    res.status(404).json({ success: false, message: 'Meter type not found' });
+    return null;
+  }
+  return mt;
+};
 
 /**
  * One active price per meter type per disco is enforced by the partial unique
@@ -21,10 +35,8 @@ const createMeterType = asyncHandler(async (req, res) => {
   const { discoCode, name, amount } = req.body;
   const createdBy = req.user ? req.user.id : null;
 
-  const disco = await Disco.findByCode(discoCode);
-  if (!disco) {
-    return res.status(404).json({ success: false, message: `Disco ${discoCode} not found` });
-  }
+  const disco = await resolveAccessibleDisco(req, res, discoCode);
+  if (!disco) return;
 
   try {
     const newType = await MeterType.create({ discoId: disco.id, name, amount, createdBy });
@@ -68,6 +80,8 @@ const updateMeterType = asyncHandler(async (req, res) => {
   const { name, amount } = req.body;
   const updatedBy = req.user ? req.user.id : null;
 
+  if (!(await loadWritableMeterType(req, res))) return;
+
   try {
     const updated = await MeterType.update(id, { name, amount, updatedBy });
     if (!updated) return res.status(404).json({ success: false, message: 'Meter type not found or not active' });
@@ -85,6 +99,8 @@ const updateMeterType = asyncHandler(async (req, res) => {
 
 const deleteMeterType = asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
+  if (!(await loadWritableMeterType(req, res))) return;
+
   const deleted = await MeterType.deactivate(id);
   if (!deleted) return res.status(404).json({ success: false, message: 'Meter type not found' });
 

@@ -53,6 +53,9 @@ class AssignmentBatch {
 
         if (!meter) {
           rejected.push({ meterNumber: number, reason: 'Meter not found' });
+        } else if (meter.discoId !== disco.id) {
+          // Meter stock belongs to a disco; it can't be dispatched for another one.
+          rejected.push({ meterNumber: number, reason: `Meter belongs to another disco's stock, not ${disco.code}` });
         } else if (meter.assignmentStatus === 'ASSIGNED') {
           rejected.push({
             meterNumber: number,
@@ -125,7 +128,7 @@ class AssignmentBatch {
   }
 
   /** Return meters to stock and close the batch once nothing is left out. */
-  static async returnMeters({ meterNumbers, returnedBy }) {
+  static async returnMeters({ meterNumbers, returnedBy, allowedDiscoIds = null }) {
     const client = await pool.connect();
 
     try {
@@ -139,8 +142,11 @@ class AssignmentBatch {
 
       for (const number of meterNumbers) {
         const meter = byNumber.get(number);
-        if (!meter) rejected.push({ meterNumber: number, reason: 'Meter not found' });
-        else if (meter.assignmentStatus !== 'ASSIGNED') {
+        // A meter in a disco the caller can't see is reported exactly like a
+        // missing one, so its existence isn't confirmed.
+        if (!meter || (allowedDiscoIds && !allowedDiscoIds.includes(meter.discoId))) {
+          rejected.push({ meterNumber: number, reason: 'Meter not found' });
+        } else if (meter.assignmentStatus !== 'ASSIGNED') {
           rejected.push({ meterNumber: number, reason: `Meter is ${meter.assignmentStatus}, not ASSIGNED` });
         } else returnable.push(meter);
       }
@@ -361,7 +367,7 @@ class AssignmentBatch {
     }));
   }
 
-  static async findAll({ page = 1, limit = 20, assignmentType, installerId, discoId, status } = {}) {
+  static async findAll({ page = 1, limit = 20, assignmentType, installerId, discoId, discoIds = null, status } = {}) {
     const filters = [];
     const params = [];
 
@@ -374,6 +380,8 @@ class AssignmentBatch {
     add('b.assignment_type = ?', assignmentType);
     add('b.installer_id = ?', installerId);
     add('b.disco_id = ?', discoId);
+    // null = every disco; [] = none (a scoped user with no discos).
+    add('b.disco_id = ANY(?::int[])', discoIds);
     add('b.status = ?', status);
 
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';

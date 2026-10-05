@@ -305,7 +305,7 @@ router.get('/:id',
  */
 router.post('/', 
   authenticate, 
-  authorize('SUPERADMIN', 'ADMIN'), 
+  authorize(['SUPERADMIN', 'ADMIN']), 
   validate(schemas.createUser), 
   userController.createUser
 );
@@ -465,7 +465,7 @@ router.put('/:id',
  */
 router.delete('/:id',
   authenticate,
-  authorize('SUPERADMIN', 'ADMIN'),
+  authorize(['SUPERADMIN', 'ADMIN']),
   validateParams(schemas.userId),
   userController.deleteUser
 );
@@ -497,6 +497,51 @@ router.post('/:id/restore',
   authorize(['SUPERADMIN', 'ADMIN']),
   validateParams(schemas.userId),
   userController.restoreUser
+);
+
+/**
+ * @swagger
+ * /users/{id}/discos:
+ *   put:
+ *     summary: Set which discos a user works in
+ *     description: >
+ *       Replaces the user's disco set with exactly these discos. SUPERADMIN only.
+ *       An empty list removes all disco access. A SUPERADMIN target is refused
+ *       (it already sees every disco).
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [discoCodes]
+ *             properties:
+ *               discoCodes:
+ *                 type: array
+ *                 items: { type: string }
+ *                 example: ["ABA_POWER", "PHEDC"]
+ *     responses:
+ *       200:
+ *         description: Discos updated; the user is returned with its new discos
+ *       400:
+ *         description: Target is a SUPERADMIN
+ *       404:
+ *         description: User or disco not found
+ */
+router.put('/:id/discos',
+  authenticate,
+  authorize(['SUPERADMIN']),
+  validateParams(schemas.userId),
+  validate(schemas.setUserDiscos),
+  userController.setUserDiscos
 );
 
 module.exports = router;

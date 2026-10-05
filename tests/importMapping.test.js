@@ -1,6 +1,6 @@
 const XLSX = require('xlsx');
-const { resolveColumns, applyMapping } = require('../src/utils/normalizers');
-const { ABA_POWER_IMPORT_MAPPING } = require('../src/config/discoDefaults');
+const { resolveColumns, applyMapping, restoreIntegerText } = require('../src/utils/normalizers');
+const { ABA_POWER_IMPORT_MAPPING, PHEDC_IMPORT_MAPPING } = require('../src/config/discoDefaults');
 
 // The real header rows from the Aba Power spreadsheets.
 const PENDING_HEADERS = [
@@ -14,7 +14,7 @@ const INVENTORY_HEADERS = [
 
 /** Round-trips rows through a real workbook so the test exercises the same read path as the importer. */
 const parse = (headers, dataRows, config) => {
-  const sheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+  const sheet = restoreIntegerText(XLSX.utils.aoa_to_sheet([headers, ...dataRows]));
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', blankrows: false });
   const columns = resolveColumns(rows[0], config.fields);
   return rows.slice(1).map((r) =>
@@ -150,5 +150,57 @@ describe('meterInventory mapping', () => {
 
   it('rejects the pending-installations sheet with a message naming the missing columns', () => {
     expect(() => parse(PENDING_HEADERS, [], config)).toThrow(/meterNumber.*METERNO/s);
+  });
+});
+
+// The real header row from PHEDC's Bayelsa customer sheet.
+const PHEDC_HEADERS = [
+  'REGION', 'FEEDER33NAME', 'FEEDER11NAME', 'DTRNAME', 'DTRID', 'ACCOUNT_NO', 'NAME', 'ADDRESS', 'STATUS'
+];
+
+describe('PHEDC pendingInstallations mapping', () => {
+  const config = PHEDC_IMPORT_MAPPING.pendingInstallations;
+
+  it('maps a real row from the Bayelsa sheet', () => {
+    const [{ values }] = parse(PHEDC_HEADERS, [[
+      'Bayelsa', 'IMIRINGI A', '--------------------', 'Peace Avenue', 1761006,
+      877509763101, 'JOHNPAUL ILOMUANYA', '46 MOUNTAIN OF FIRE STREET OPOLOL BAYELSA STATE', 'Active'
+    ]], config);
+
+    expect(values).toMatchObject({
+      accountNumber: '877509763101',
+      customerName: 'JOHNPAUL ILOMUANYA',
+      customerAddress: '46 MOUNTAIN OF FIRE STREET OPOLOL BAYELSA STATE',
+      feederName: 'IMIRINGI A',
+      transformerName: 'Peace Avenue',
+      transformerCode: '1761006',
+      region: 'Bayelsa'
+    });
+  });
+
+  it('keeps every digit of a 12-digit numeric account', () => {
+    const [{ values }] = parse(PHEDC_HEADERS, [[
+      'Bayelsa', 'IMIRINGI A', '-', 'Joshua Macaiver', 1761004, 877729078307, 'PASTOR PRINCE AJIBADE ', 'joshua macaiver', 'Active'
+    ]], config);
+    expect(values.accountNumber).toBe('877729078307');
+  });
+
+  it('keeps a letter-suffixed sub-account intact', () => {
+    const [{ values }] = parse(PHEDC_HEADERS, [[
+      'Bayelsa', 'IMIRINGI A', '-', 'Back of Kpansia mkt', 1761010, '877253168101D', 'JOSEPH COURT FLT 3', 'FIDO WATER ROAD CLOS', 'Active'
+    ]], config);
+    expect(values.accountNumber).toBe('877253168101D');
+  });
+
+  it('leaves meter type and phone empty, since the sheet has neither', () => {
+    const [{ values }] = parse(PHEDC_HEADERS, [[
+      'Bayelsa', 'IMIRINGI A', '-', 'Peace Avenue', 1761006, 877509763101, 'JOHNPAUL ILOMUANYA', 'X', 'Active'
+    ]], config);
+    expect(values.meterType ?? null).toBeNull();
+    expect(values.customerPhone ?? null).toBeNull();
+  });
+
+  it('rejects an Aba Power sheet', () => {
+    expect(() => parse(PENDING_HEADERS, [], config)).toThrow(/accountNumber/);
   });
 });

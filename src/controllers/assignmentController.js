@@ -1,21 +1,15 @@
-const Disco = require('../models/Disco');
 const User = require('../models/User');
 const AssignmentBatch = require('../models/AssignmentBatch');
 const { asyncHandler } = require('../middleware/errorHandler');
+const {
+  allowedDiscoIds, canAccessDisco, resolveAccessibleDisco, resolveListScope
+} = require('../utils/discoAccess');
 
-const loadDisco = async (res, discoCode) => {
-  const disco = await Disco.findByCode(discoCode);
-
-  if (!disco) {
-    res.status(404).json({ success: false, message: `Disco ${discoCode} not found` });
-    return null;
-  }
-
-  return disco;
-};
-
-/** Assignments only make sense to an active installer, so check before writing. */
-const loadInstaller = async (res, installerId) => {
+/**
+ * Assignments only make sense to an active installer profiled for the disco
+ * the work belongs to, so check all of that before writing.
+ */
+const loadInstaller = async (res, installerId, disco) => {
   const installer = await User.findById(installerId);
 
   if (!installer) {
@@ -36,16 +30,25 @@ const loadInstaller = async (res, installerId) => {
     return null;
   }
 
+  const discos = await User.getDiscos(installer.id);
+  if (!discos.some((d) => d.id === disco.id)) {
+    res.status(400).json({
+      success: false,
+      message: `${installer.firstName} ${installer.lastName} isn't profiled for ${disco.code}`
+    });
+    return null;
+  }
+
   return installer;
 };
 
 const assignMeters = asyncHandler(async (req, res) => {
   const { discoCode, installerId, meterNumbers, note, dispatchRef } = req.body;
 
-  const disco = await loadDisco(res, discoCode);
+  const disco = await resolveAccessibleDisco(req, res, discoCode);
   if (!disco) return;
 
-  const installer = await loadInstaller(res, installerId);
+  const installer = await loadInstaller(res, installerId, disco);
   if (!installer) return;
 
   const { batch, assigned, rejected } = await AssignmentBatch.assignMeters({
@@ -77,7 +80,8 @@ const returnMeters = asyncHandler(async (req, res) => {
 
   const { returned, rejected } = await AssignmentBatch.returnMeters({
     meterNumbers,
-    returnedBy: req.user ? req.user.id : null
+    returnedBy: req.user ? req.user.id : null,
+    allowedDiscoIds: allowedDiscoIds(req.user)
   });
 
   res.json({
@@ -90,10 +94,10 @@ const returnMeters = asyncHandler(async (req, res) => {
 const assignInstallations = asyncHandler(async (req, res) => {
   const { discoCode, installerId, ids, accountNumbers, note, dispatchRef } = req.body;
 
-  const disco = await loadDisco(res, discoCode);
+  const disco = await resolveAccessibleDisco(req, res, discoCode);
   if (!disco) return;
 
-  const installer = await loadInstaller(res, installerId);
+  const installer = await loadInstaller(res, installerId, disco);
   if (!installer) return;
 
   const { batch, assigned, rejected } = await AssignmentBatch.assignInstallations({
@@ -124,7 +128,7 @@ const assignInstallations = asyncHandler(async (req, res) => {
 const unassignInstallations = asyncHandler(async (req, res) => {
   const { discoCode, ids, accountNumbers } = req.body;
 
-  const disco = await loadDisco(res, discoCode);
+  const disco = await resolveAccessibleDisco(req, res, discoCode);
   if (!disco) return;
 
   const unassigned = await AssignmentBatch.unassignInstallations({
@@ -144,21 +148,15 @@ const listAssignmentBatches = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, assignmentType, installerId, discoCode, status } =
     req.validatedQuery || req.query;
 
-  let discoId;
-  if (discoCode) {
-    const disco = await Disco.findByCode(discoCode);
-    if (!disco) {
-      return res.status(404).json({ success: false, message: `Disco ${discoCode} not found` });
-    }
-    discoId = disco.id;
-  }
+  const scope = await resolveListScope(req, res, discoCode);
+  if (!scope) return;
 
   const { batches, pagination } = await AssignmentBatch.findAll({
     page: Number(page),
     limit: Number(limit),
     assignmentType,
     installerId,
-    discoId,
+    discoIds: scope.discoIds,
     status
   });
 
@@ -168,7 +166,8 @@ const listAssignmentBatches = asyncHandler(async (req, res) => {
 const getAssignmentBatch = asyncHandler(async (req, res) => {
   const batch = await AssignmentBatch.findById(req.params.id);
 
-  if (!batch) {
+  // Outside the caller's discos reads as not found, so its existence isn't confirmed.
+  if (!batch || !canAccessDisco(req.user, batch.discoId)) {
     return res.status(404).json({ success: false, message: 'Assignment batch not found' });
   }
 

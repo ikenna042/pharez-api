@@ -29,11 +29,16 @@ const router = express.Router();
  *             type: object
  *             required:
  *               - file
+ *               - discoCode
  *             properties:
  *               file:
  *                 type: string
  *                 format: binary
  *                 description: Excel file (.xlsx or .xls) with meter data
+ *               discoCode:
+ *                 type: string
+ *                 example: ABA_POWER
+ *                 description: Disco whose stock these meters join. SUPERADMIN (any disco) or ADMIN (own discos); SUPERVISOR can't import.
  *     responses:
  *       201:
  *         description: Meters uploaded successfully
@@ -78,7 +83,7 @@ const router = express.Router();
  *       500:
  *         description: Server error
  */
-router.post('/upload', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']), upload.single('file'), meterController.uploadMeters);
+router.post('/upload', authenticate, authorize(['SUPERADMIN', 'ADMIN']), upload.single('file'), meterController.uploadMeters);
 
 /**
  * @swagger
@@ -373,7 +378,7 @@ router.get('/meter-number/:meterNumber', authenticate, authorize(['SUPERADMIN', 
  *       403:
  *         description: Insufficient permissions
  */
-router.delete('/:meterNumber', authenticate, authorize('SUPERADMIN'), meterController.deleteMeter);
+router.delete('/:meterNumber', authenticate, authorize(['SUPERADMIN']), meterController.deleteMeter);
 
 /**
  * @swagger
