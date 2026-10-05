@@ -133,7 +133,8 @@ router.get(
 router.post(
   '/:discoCode/pending-installations',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
+  // SUPERVISOR exports but never imports.
+  authorize(['SUPERADMIN', 'ADMIN']),
   validateParams(schemas.discoCodeParam),
   upload.single('file'),
   importController.importPendingInstallations
@@ -175,7 +176,8 @@ router.post(
 router.post(
   '/:discoCode/meters',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
+  // SUPERVISOR exports but never imports.
+  authorize(['SUPERADMIN', 'ADMIN']),
   validateParams(schemas.discoCodeParam),
   upload.single('file'),
   importController.importMeterInventory
@@ -237,7 +239,8 @@ router.get(
 router.post(
   '/:id/undo',
   authenticate,
-  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
+  // Undoing an import is part of importing, which SUPERVISOR doesn't do.
+  authorize(['SUPERADMIN', 'ADMIN']),
   validateParams(schemas.idParam),
   importController.undoImportBatch
 );

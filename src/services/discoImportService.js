@@ -4,7 +4,7 @@ const Disco = require('../models/Disco');
 const ImportBatch = require('../models/ImportBatch');
 const InstallationRequest = require('../models/InstallationRequest');
 const Meter = require('../models/Meter');
-const { resolveColumns, applyMapping } = require('../utils/normalizers');
+const { resolveColumns, applyMapping, restoreIntegerText } = require('../utils/normalizers');
 
 /**
  * Reads a disco's spreadsheet according to that disco's configured column
@@ -30,7 +30,7 @@ class DiscoImportService {
       );
     }
 
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    const rows = XLSX.utils.sheet_to_json(restoreIntegerText(workbook.Sheets[sheetName]), {
       header: 1,
       raw: false,
       defval: '',
@@ -224,6 +224,7 @@ class DiscoImportService {
 
       const result = await Meter.bulkCreateFromImport(rows, {
         client,
+        discoId: disco.id,
         uploadedBy,
         importBatchId: batch.id
       });

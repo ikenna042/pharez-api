@@ -5,17 +5,22 @@ const InstallationRequest = require('../models/InstallationRequest');
 const ExportBatch = require('../models/ExportBatch');
 const InstallationExportService = require('../services/installationExportService');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { canAccessDisco, resolveAccessibleDisco, resolveListScope } = require('../utils/discoAccess');
 
-const resolveDiscoId = async (res, discoCode) => {
-  if (!discoCode) return undefined;
+const notFound = (res) => res.status(404).json({ success: false, message: 'Installation request not found' });
 
-  const disco = await Disco.findByCode(discoCode);
-  if (!disco) {
-    res.status(404).json({ success: false, message: `Disco ${discoCode} not found` });
+/**
+ * One installation, if the caller may see its disco. A request in a disco the
+ * caller isn't profiled for answers 404 -- not 403 -- so its existence isn't
+ * confirmed. Sends the 404 itself and returns null.
+ */
+const loadAccessibleRequest = async (req, res) => {
+  const request = await InstallationRequest.findById(req.params.id);
+  if (!request || !canAccessDisco(req.user, request.discoId)) {
+    notFound(res);
     return null;
   }
-
-  return disco.id;
+  return request;
 };
 
 /* ----------------------------- admin ----------------------------- */
@@ -23,10 +28,8 @@ const resolveDiscoId = async (res, discoCode) => {
 const createInstallationRequest = asyncHandler(async (req, res) => {
   const { discoCode, accountNumber, ...rest } = req.body;
 
-  const disco = await Disco.findByCode(discoCode);
-  if (!disco) {
-    return res.status(404).json({ success: false, message: `Disco ${discoCode} not found` });
-  }
+  const disco = await resolveAccessibleDisco(req, res, discoCode);
+  if (!disco) return;
 
   const existing = await InstallationRequest.findByAccountNumber(disco.id, accountNumber);
   if (existing) {
@@ -50,13 +53,13 @@ const createInstallationRequest = asyncHandler(async (req, res) => {
 const getInstallations = asyncHandler(async (req, res) => {
   const q = req.validatedQuery || req.query;
 
-  const discoId = await resolveDiscoId(res, q.discoCode);
-  if (discoId === null) return;
+  const scope = await resolveListScope(req, res, q.discoCode);
+  if (!scope) return;
 
   const { requests, pagination } = await InstallationRequest.findAll({
     page: Number(q.page || 1),
     limit: Number(q.limit || 20),
-    discoId,
+    discoIds: scope.discoIds,
     status: q.status,
     assignedTo: q.installerId,
     assignmentBatchId: q.assignmentBatchId,
@@ -72,13 +75,13 @@ const getInstallations = asyncHandler(async (req, res) => {
 const searchInstallations = asyncHandler(async (req, res) => {
   const q = req.validatedQuery || req.query;
 
-  const discoId = await resolveDiscoId(res, q.discoCode);
-  if (discoId === null) return;
+  const scope = await resolveListScope(req, res, q.discoCode);
+  if (!scope) return;
 
   const { requests, pagination } = await InstallationRequest.findAll({
     page: Number(q.page || 1),
     limit: Number(q.limit || 20),
-    discoId,
+    discoIds: scope.discoIds,
     status: q.status,
     search: q.q
   });
@@ -89,19 +92,16 @@ const searchInstallations = asyncHandler(async (req, res) => {
 const getInstallationStatistics = asyncHandler(async (req, res) => {
   const q = req.validatedQuery || req.query;
 
-  const discoId = await resolveDiscoId(res, q.discoCode);
-  if (discoId === null) return;
+  const scope = await resolveListScope(req, res, q.discoCode);
+  if (!scope) return;
 
-  const stats = await InstallationRequest.getStatistics({ discoId });
+  const stats = await InstallationRequest.getStatistics({ discoIds: scope.discoIds });
   res.json({ success: true, data: stats });
 });
 
 const getInstallationById = asyncHandler(async (req, res) => {
-  const request = await InstallationRequest.findById(req.params.id);
-
-  if (!request) {
-    return res.status(404).json({ success: false, message: 'Installation request not found' });
-  }
+  const request = await loadAccessibleRequest(req, res);
+  if (!request) return;
 
   // An installer may only look at their own work.
   if (req.user.role === 'INSTALLER' && String(request.assignedTo) !== String(req.user.id)) {
@@ -112,6 +112,8 @@ const getInstallationById = asyncHandler(async (req, res) => {
 });
 
 const cancelInstallation = asyncHandler(async (req, res) => {
+  if (!(await loadAccessibleRequest(req, res))) return;
+
   const cancelled = await InstallationRequest.cancel(req.params.id, req.body.reason);
 
   if (!cancelled) {
@@ -131,6 +133,8 @@ const REVERT_FAILURES = {
 };
 
 const revertInstallation = asyncHandler(async (req, res) => {
+  if (!(await loadAccessibleRequest(req, res))) return;
+
   const result = await InstallationRequest.revertCompletion(req.params.id);
 
   if (result.error) {
@@ -199,7 +203,8 @@ const REPORT_FAILURES = {
   ILLEGAL_TRANSITION: (r) => [400, `Cannot report a ${r.status} installation`],
   METER_NOT_FOUND: () => [404, 'Meter not found'],
   METER_NOT_YOURS: () => [400, 'That meter is not assigned to you'],
-  PHASE_MISMATCH: (r) => [400, `Meter type mismatch. Required: ${r.required}, provided: ${r.provided}`]
+  PHASE_MISMATCH: (r) => [400, `Meter type mismatch. Required: ${r.required}, provided: ${r.provided}`],
+  METER_WRONG_DISCO: () => [400, "That meter belongs to a different disco's stock than this installation"]
 };
 
 const reportInstallation = asyncHandler(async (req, res) => {
@@ -239,10 +244,8 @@ const reportFailure = asyncHandler(async (req, res) => {
 const exportInstallationResponse = asyncHandler(async (req, res) => {
   const q = req.validatedQuery || req.query;
 
-  const disco = await Disco.findByCode(req.params.discoCode);
-  if (!disco) {
-    return res.status(404).json({ success: false, message: `Disco ${req.params.discoCode} not found` });
-  }
+  const disco = await resolveAccessibleDisco(req, res, req.params.discoCode);
+  if (!disco) return;
 
   const template = Disco.getExportTemplate(disco, 'installationResponse');
   if (!template) {
@@ -306,13 +309,13 @@ const exportInstallationResponse = asyncHandler(async (req, res) => {
 const listExportBatches = asyncHandler(async (req, res) => {
   const q = req.validatedQuery || req.query;
 
-  const discoId = await resolveDiscoId(res, q.discoCode);
-  if (discoId === null) return;
+  const scope = await resolveListScope(req, res, q.discoCode);
+  if (!scope) return;
 
   const { batches, pagination } = await ExportBatch.findAll({
     page: Number(q.page || 1),
     limit: Number(q.limit || 20),
-    discoId
+    discoIds: scope.discoIds
   });
 
   res.json({ success: true, data: batches, pagination });
@@ -320,10 +323,8 @@ const listExportBatches = asyncHandler(async (req, res) => {
 
 /** Mark rows as delivered after the sheet has actually been emailed to the disco. */
 const markExportSent = asyncHandler(async (req, res) => {
-  const disco = await Disco.findByCode(req.params.discoCode);
-  if (!disco) {
-    return res.status(404).json({ success: false, message: `Disco ${req.params.discoCode} not found` });
-  }
+  const disco = await resolveAccessibleDisco(req, res, req.params.discoCode);
+  if (!disco) return;
 
   const batch = await ExportBatch.findById(req.body.exportBatchId);
   if (!batch || batch.discoId !== disco.id) {

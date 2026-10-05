@@ -127,7 +127,85 @@ const ABA_POWER_EXPORT_TEMPLATE = {
   }
 };
 
+// PHEDC (Bayelsa) sends: REGION | FEEDER33NAME | FEEDER11NAME | DTRNAME | DTRID |
+// ACCOUNT_NO | NAME | ADDRESS | STATUS
+//
+// Unlike Aba Power there's no meter type and no phone number. meterType is
+// therefore optional: PHEDC jobs import without one, and recordInstallation
+// takes the phase of the meter actually installed. The optional meterType and
+// customerPhone aliases are only picked up if a later PHEDC sheet includes them.
+// FEEDER11NAME is all dashes in the sample, so it's left unmapped (kept in
+// source_row via captureExtras, along with STATUS).
+const PHEDC_IMPORT_MAPPING = {
+  pendingInstallations: {
+    sheetIndex: 0,
+    headerRow: 1,
+    keyField: 'accountNumber',
+    captureExtras: true,
+    fields: {
+      accountNumber: {
+        // Some are sub-accounts with a letter suffix (877906308801B), so text, not a number.
+        headers: ['ACCOUNT_NO', 'ACCOUNTNO'],
+        required: true,
+        transform: 'text'
+      },
+      customerName: {
+        headers: ['NAME'],
+        required: true,
+        transform: 'trim'
+      },
+      customerAddress: {
+        headers: ['ADDRESS', 'CUSTOMERADDRESS'],
+        transform: 'trim'
+      },
+      feederName: {
+        headers: ['FEEDER33NAME', 'FEEDERNAME'],
+        transform: 'trim'
+      },
+      transformerName: {
+        headers: ['DTRNAME', 'TRANSFORMERNAME'],
+        transform: 'trim'
+      },
+      transformerCode: {
+        headers: ['DTRID', 'TRANSFORMERCODE'],
+        transform: 'text'
+      },
+      region: {
+        headers: ['REGION'],
+        transform: 'trim'
+      },
+      customerPhone: {
+        headers: ['CUSTOMERPHONENUMBER', 'PHONENUMBER', 'PHONE', 'GSM'],
+        transform: 'ngPhone'
+      },
+      meterType: {
+        headers: ['METERTYPE', 'PHASE', 'PHASETYPE'],
+        transform: 'phase'
+      }
+    }
+  },
+
+  // Same supplier spreadsheet as Aba Power.
+  meterInventory: ABA_POWER_IMPORT_MAPPING.meterInventory
+};
+
+// Starts as Aba Power's layout until PHEDC supplies its own; replace it with
+// PUT /api/v1/discos/PHEDC/export-template, no deploy needed.
+const PHEDC_EXPORT_TEMPLATE = {
+  installationResponse: {
+    ...ABA_POWER_EXPORT_TEMPLATE.installationResponse,
+    fileNamePrefix: 'phedc_installations',
+    columns: ABA_POWER_EXPORT_TEMPLATE.installationResponse.columns.map((column) => {
+      if (column.source === 'discoSupervisor') return { ...column, header: 'PHEDC Supervisor' };
+      if (column.source === 'sealNumber') return { ...column, header: 'Seal Number' };
+      return column;
+    })
+  }
+};
+
 module.exports = {
   ABA_POWER_IMPORT_MAPPING,
-  ABA_POWER_EXPORT_TEMPLATE
+  ABA_POWER_EXPORT_TEMPLATE,
+  PHEDC_IMPORT_MAPPING,
+  PHEDC_EXPORT_TEMPLATE
 };

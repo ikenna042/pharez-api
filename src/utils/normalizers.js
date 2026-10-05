@@ -36,6 +36,24 @@ const expandScientific = (s) => {
     : sign + digits.slice(0, pointPos) + '.' + digits.slice(pointPos);
 };
 
+/**
+ * Give whole-number cells their full digits back before the sheet is read as text.
+ *
+ * Excel's General format shows a number of 12 or more digits as "8.77729E+11",
+ * and that rounded text is what { raw: false } hands us, so a 12-digit PHEDC
+ * account number would lose its last six digits. Where the stored value is
+ * still an exact integer, use it instead. Larger values (19-digit SIM serials)
+ * were already rounded by Excel and are left to expandScientific.
+ */
+const restoreIntegerText = (sheet) => {
+  Object.keys(sheet).forEach((ref) => {
+    const cell = sheet[ref];
+    if (ref[0] === '!' || !cell || cell.t !== 'n') return;
+    if (Number.isSafeInteger(cell.v) && /e/i.test(String(cell.w))) cell.w = String(cell.v);
+  });
+  return sheet;
+};
+
 const trim = (value) => {
   if (value === null || value === undefined) return null;
   const s = String(value).trim();
@@ -232,6 +250,7 @@ const applyMapping = (rowValues, columns, fields, options = {}) => {
 module.exports = {
   headerKey,
   expandScientific,
+  restoreIntegerText,
   transforms,
   applyTransform,
   resolveColumns,

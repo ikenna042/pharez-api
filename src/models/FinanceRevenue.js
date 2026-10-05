@@ -19,7 +19,8 @@ const { resolveGroupBy, resolveSortBy, resolveSortOrder } = require('../utils/fi
 
 const RECOGNITION = {
   JED: 'ON_PAYMENT_CONFIRMED',
-  ABA_POWER: 'ON_INSTALLATION_COMPLETED'
+  ABA_POWER: 'ON_INSTALLATION_COMPLETED',
+  PHEDC: 'ON_INSTALLATION_COMPLETED'
 };
 
 /**
@@ -79,7 +80,7 @@ const REVENUE_CTE = `
  * Build the shared WHERE clause. Every value is parameterised; nothing from the
  * caller is ever interpolated.
  */
-const buildFilters = ({ discoCode, from, to, meterType, search } = {}) => {
+const buildFilters = ({ discoCode, discoCodes, from, to, meterType, search } = {}) => {
   const conditions = [];
   const params = [];
 
@@ -89,6 +90,8 @@ const buildFilters = ({ discoCode, from, to, meterType, search } = {}) => {
   };
 
   if (discoCode) add('disco_code = ?', String(discoCode).toUpperCase());
+  // The caller's discos; null/undefined = every disco, [] = none.
+  if (discoCodes) add('disco_code = ANY(?::text[])', discoCodes);
   if (from) add('revenue_at >= ?', from);
   if (to) add('revenue_at < ?', to);
   if (meterType) add('meter_type = ?', String(meterType).toUpperCase());

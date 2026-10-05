@@ -230,14 +230,20 @@ class InstallationRequest {
     return result.rows.length === 0 ? null : this.format(result.rows[0]);
   }
 
-  static async getStatistics({ discoId } = {}) {
+  static async getStatistics({ discoId, discoIds = null } = {}) {
     const params = [];
-    let where = '';
+    const filters = [];
 
     if (discoId) {
       params.push(discoId);
-      where = 'WHERE disco_id = $1';
+      filters.push(`disco_id = $${params.length}`);
     }
+    // null = every disco; [] = none (a scoped user with no discos).
+    if (discoIds) {
+      params.push(discoIds);
+      filters.push(`disco_id = ANY($${params.length}::int[])`);
+    }
+    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
 
     const result = await pool.query(
       `SELECT COUNT(*)::int AS total,
@@ -266,7 +272,7 @@ class InstallationRequest {
   }
 
   static async findAll({
-    page = 1, limit = 20, discoId, status, assignedTo, assignmentBatchId, importBatchId, search, from, to
+    page = 1, limit = 20, discoId, discoIds = null, status, assignedTo, assignmentBatchId, importBatchId, search, from, to
   } = {}) {
     const filters = [];
     const params = [];
@@ -278,6 +284,8 @@ class InstallationRequest {
     };
 
     add('r.disco_id = ?', discoId);
+    // null = every disco; [] = none (a scoped user with no discos).
+    add('r.disco_id = ANY(?::int[])', discoIds);
     add('r.status = ?', status);
     add('r.assigned_to = ?', assignedTo);
     add('r.assignment_batch_id = ?', assignmentBatchId);
@@ -394,6 +402,13 @@ class InstallationRequest {
         return { error: 'METER_NOT_YOURS', assignmentStatus: meter.assignment_status };
       }
 
+      // Meter stock belongs to a disco: one disco's meter can't go on another
+      // disco's job, even if the same installer holds both.
+      if (meter.disco_id !== request.disco_id) {
+        await client.query('ROLLBACK');
+        return { error: 'METER_WRONG_DISCO' };
+      }
+
       if (request.meter_type && meter.phase_type && request.meter_type !== meter.phase_type) {
         await client.query('ROLLBACK');
         return { error: 'PHASE_MISMATCH', required: request.meter_type, provided: meter.phase_type };
@@ -419,12 +434,18 @@ class InstallationRequest {
       // installation_request.meter_type is upper case, hence upper(name). A
       // partial unique index allows one active price per name per disco, so
       // the ORDER BY is only a tiebreaker that should never be needed.
+      //
+      // Some discos' sheets (PHEDC) carry no meter type, so the job is priced
+      // by the phase of the meter actually installed, which is also recorded
+      // on the job below. Jobs that already have a meter type are unaffected.
+      const installedMeterType = request.meter_type || meter.phase_type || null;
+
       const price = await client.query(
         `SELECT id, amount FROM meter_types
          WHERE is_active = true AND disco_id = $2 AND upper(name) = upper($1)
          ORDER BY created_at DESC, id DESC
          LIMIT 1`,
-        [request.meter_type, request.disco_id]
+        [installedMeterType, request.disco_id]
       );
 
       const priceRow = price.rows[0] || null;
@@ -434,7 +455,7 @@ class InstallationRequest {
         // an admin deactivated a price is worse than a gap finance can see and
         // correct; the finance endpoints report these under missingAmountCount.
         console.warn(
-          `[revenue] no active meter_types price for "${request.meter_type}" (disco ${request.disco_id}) ` +
+          `[revenue] no active meter_types price for "${installedMeterType}" (disco ${request.disco_id}) ` +
           `(installation_request ${requestId}); recording installation without an amount`
         );
       }
@@ -447,6 +468,7 @@ class InstallationRequest {
              installation_photo_url = $7, disco_supervisor = $8,
              installation_notes = $9, installed_by = $10,
              payment_amount = $11, meter_type_id = $12,
+             meter_type = COALESCE(meter_type, $14),
              payment_status = 'EARNED', payment_source = 'PRICE_BOOK',
              reported_at = CURRENT_TIMESTAMP, failure_reason = NULL,
              updated_at = CURRENT_TIMESTAMP
@@ -459,7 +481,8 @@ class InstallationRequest {
           notes || null, installerId,
           priceRow ? priceRow.amount : null,
           priceRow ? priceRow.id : null,
-          requestId
+          requestId,
+          installedMeterType
         ]
       );
 
@@ -569,6 +592,7 @@ class InstallationRequest {
            SET status = 'AVAILABLE', assignment_status = 'UNASSIGNED',
                assigned_to = NULL, assigned_at = NULL,
                assignment_batch_id = NULL, installation_request_id = NULL,
+               installed_at = NULL,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $1`,
           [request.meter_id]

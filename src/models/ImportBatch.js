@@ -81,7 +81,7 @@ class ImportBatch {
     return result.rows.length === 0 ? null : this.format(result.rows[0]);
   }
 
-  static async findAll({ page = 1, limit = 20, discoId, importType, status } = {}) {
+  static async findAll({ page = 1, limit = 20, discoId, discoIds = null, importType, status } = {}) {
     const filters = [];
     const params = [];
 
@@ -92,6 +92,8 @@ class ImportBatch {
     };
 
     add('b.disco_id = ?', discoId);
+    // null = every disco; [] = none (a scoped user with no discos).
+    add('b.disco_id = ANY(?::int[])', discoIds);
     add('b.import_type = ?', importType);
     add('b.status = ?', status);
 

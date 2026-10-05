@@ -51,7 +51,7 @@ const router = express.Router();
  
 router.get('/', 
     authenticate, 
-    authorize('SUPERADMIN', 'ADMIN'), 
+    authorize(['SUPERADMIN', 'ADMIN']), 
     dashboardController.getDashboardStats
 );
 

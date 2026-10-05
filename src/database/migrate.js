@@ -1,6 +1,11 @@
 require('dotenv').config();
 const pool = require('../config/database');
-const { ABA_POWER_IMPORT_MAPPING, ABA_POWER_EXPORT_TEMPLATE } = require('../config/discoDefaults');
+const {
+  ABA_POWER_IMPORT_MAPPING,
+  ABA_POWER_EXPORT_TEMPLATE,
+  PHEDC_IMPORT_MAPPING,
+  PHEDC_EXPORT_TEMPLATE
+} = require('../config/discoDefaults');
 
 const createUsersTable = `
   CREATE TABLE IF NOT EXISTS users (
@@ -200,7 +205,8 @@ const seedDiscos = `
   INSERT INTO discos (code, name, integration_mode, import_mapping, export_template)
   VALUES
     ('ABA_POWER', 'Aba Power Limited Electric', 'OFFLINE', $1::jsonb, $2::jsonb),
-    ('JED', 'Jos Electricity Distribution', 'API', '{}'::jsonb, '{}'::jsonb)
+    ('JED', 'Jos Electricity Distribution', 'API', '{}'::jsonb, '{}'::jsonb),
+    ('PHEDC', 'Port Harcourt Electricity Distribution Company', 'OFFLINE', $3::jsonb, $4::jsonb)
   ON CONFLICT (code) DO NOTHING;
 `;
 
@@ -410,6 +416,28 @@ const alterFileAttachmentsAddPublicToken = `
 // meters.status, because jedController requires status = 'AVAILABLE' before a JED
 // installation. Putting 'ASSIGNED' in status would silently start rejecting JED
 // installations for any meter an Aba supervisor had assigned.
+// Which discos each staff user may see and act on. SUPERADMIN is never listed
+// here -- it always sees every disco. Everyone else sees only the discos they
+// are profiled for, and a user can be profiled for several.
+const createUserDiscosTable = (uid) => `
+  CREATE TABLE IF NOT EXISTS user_discos (
+    user_id ${uid} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    disco_id INTEGER NOT NULL REFERENCES discos(id),
+    granted_by ${uid} REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, disco_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_discos_disco ON user_discos(disco_id);
+`;
+
+// Every meter belongs to one disco's stock, so a meter can only be dispatched
+// for and installed on that disco's jobs. Added nullable here;
+// migrations/005-disco-access.js backfills existing meters, then sets NOT NULL.
+const alterMetersAddDisco = `
+  ALTER TABLE meters ADD COLUMN IF NOT EXISTS disco_id INTEGER REFERENCES discos(id);
+  CREATE INDEX IF NOT EXISTS idx_meters_disco ON meters(disco_id);
+`;
+
 // Meter prices are per disco: the same meter type ('Single Phase') can cost
 // different amounts at different discos. meter_types is created before discos
 // in runMigration, so the FK has to be added here, after discos exists.
@@ -717,11 +745,17 @@ const runMigration = async (options = {}) => {
 
     await client.query(seedDiscos, [
       JSON.stringify(ABA_POWER_IMPORT_MAPPING),
-      JSON.stringify(ABA_POWER_EXPORT_TEMPLATE)
+      JSON.stringify(ABA_POWER_EXPORT_TEMPLATE),
+      JSON.stringify(PHEDC_IMPORT_MAPPING),
+      JSON.stringify(PHEDC_EXPORT_TEMPLATE)
     ]);
-    console.log('✅ Discos seeded (ABA_POWER, JED)');
+    console.log('✅ Discos seeded (ABA_POWER, JED, PHEDC)');
     await client.query(alterMeterTypesAddDisco);
     console.log('✅ Ensured disco_id exists on meter_types');
+    await client.query(createUserDiscosTable(userIdType));
+    console.log('✅ User discos table created');
+    await client.query(alterMetersAddDisco);
+    console.log('✅ Ensured disco_id exists on meters');
 
     await client.query(createImportBatchesTable(userIdType));
     console.log('✅ Import batches table created');

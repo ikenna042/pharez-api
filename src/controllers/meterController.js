@@ -2,6 +2,10 @@ const Meter = require('../models/Meter');
 const JedCustomerRequest = require('../models/JedCustomerRequest');
 const ExcelService = require('../services/excelService');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { canAccessDisco, resolveAccessibleDisco, resolveListScope } = require('../utils/discoAccess');
+
+// A meter in a disco the caller isn't profiled for reads as not found.
+const meterNotFound = (res) => res.status(404).json({ success: false, message: 'Meter not found' });
 
 const uploadMeters = asyncHandler(async (req, res) => {
   if (!req.file) {
@@ -11,11 +15,19 @@ const uploadMeters = asyncHandler(async (req, res) => {
     });
   }
 
+  if (!req.body.discoCode) {
+    return res.status(400).json({ success: false, message: 'discoCode is required' });
+  }
+
+  // Every meter belongs to one disco's stock.
+  const disco = await resolveAccessibleDisco(req, res, req.body.discoCode);
+  if (!disco) return;
+
   // Parse Excel file
   const meters = ExcelService.parseMeterExcel(req.file.buffer);
 
   // Bulk create meters
-  const result = await Meter.bulkCreate(meters, req.user?.id);
+  const result = await Meter.bulkCreate(meters, req.user?.id, disco.id);
 
   res.status(201).json({
     success: true,
@@ -38,14 +50,18 @@ const downloadMeterTemplate = asyncHandler(async (req, res) => {
 });
 
 const exportMeters = asyncHandler(async (req, res) => {
-  const { status, phaseType } = req.query;
+  const { status, phaseType, discoCode } = req.query;
+
+  const scope = await resolveListScope(req, res, discoCode);
+  if (!scope) return;
 
   // Get all meters based on filters
   const result = await Meter.findAll({
     page: 1,
     limit: 10000, // Get all meters
     status,
-    phaseType
+    phaseType,
+    discoIds: scope.discoIds
   });
 
   if (result.meters.length === 0) {
@@ -63,9 +79,12 @@ const exportMeters = asyncHandler(async (req, res) => {
 });
 
 const getMeters = asyncHandler(async (req, res) => {
-  const { page, limit, status, phaseType } = req.query;
+  const { page, limit, status, phaseType, discoCode } = req.query;
 
-  const result = await Meter.findAll({ page, limit, status, phaseType });
+  const scope = await resolveListScope(req, res, discoCode);
+  if (!scope) return;
+
+  const result = await Meter.findAll({ page, limit, status, phaseType, discoIds: scope.discoIds });
 
   res.json({
     success: true,
@@ -77,12 +96,16 @@ const getMeters = asyncHandler(async (req, res) => {
 const searchMeters = asyncHandler(async (req, res) => {
   const q = req.validatedQuery || req.query;
 
+  const scope = await resolveListScope(req, res, q.discoCode);
+  if (!scope) return;
+
   const result = await Meter.findAll({
     page: q.page,
     limit: q.limit,
     status: q.status,
     phaseType: q.phaseType,
-    search: q.q
+    search: q.q,
+    discoIds: scope.discoIds
   });
 
   res.json({
@@ -98,12 +121,7 @@ const getMeterById = asyncHandler(async (req, res) => {
 
   const meter = await Meter.findById(id);
 
-  if (!meter) {
-    return res.status(404).json({
-      success: false,
-      message: 'Meter not found'
-    });
-  }
+  if (!meter || !canAccessDisco(req.user, meter.discoId)) return meterNotFound(res);
 
   res.json({
     success: true,
@@ -117,12 +135,7 @@ const getMeterByMeterNumber = asyncHandler(async (req, res) => {
 
   const meter = await Meter.findByMeterNumber(meterNumber);
 
-  if (!meter) {
-    return res.status(404).json({
-      success: false,
-      message: 'Meter not found'
-    });
-  }
+  if (!meter || !canAccessDisco(req.user, meter.discoId)) return meterNotFound(res);
 
   res.json({
     success: true,
@@ -132,7 +145,10 @@ const getMeterByMeterNumber = asyncHandler(async (req, res) => {
 
 
 const getMeterStatistics = asyncHandler(async (req, res) => {
-  const stats = await Meter.getStatistics();
+  const scope = await resolveListScope(req, res, req.query.discoCode);
+  if (!scope) return;
+
+  const stats = await Meter.getStatistics({ discoIds: scope.discoIds });
 
   res.json({
     success: true,
