@@ -29,6 +29,10 @@ jobs:
 
             npm ci --omit=dev
 
+            # Schema changes must land before the new code starts serving.
+            # Idempotent and transactional; a failure stops the deploy here.
+            npm run migrate
+
             pm2 restart pharez-api
             pm2 save
 

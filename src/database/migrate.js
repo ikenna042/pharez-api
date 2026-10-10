@@ -557,6 +557,11 @@ const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_ir_import_batch ON installation_request(import_batch_id);
   CREATE INDEX IF NOT EXISTS idx_ir_account_number ON installation_request(account_number);
   CREATE INDEX IF NOT EXISTS idx_ir_meter_number ON installation_request(meter_number);
+  -- Seal duplicate check (InstallationRequest.recordInstallation) compares digits
+  -- only. Not UNIQUE: seals reported before the check existed may already clash.
+  CREATE INDEX IF NOT EXISTS idx_ir_seal_digits
+    ON installation_request ((regexp_replace(seal_number, '[^0-9]', '', 'g')))
+    WHERE seal_number IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_ir_reported_at ON installation_request(reported_at);
   CREATE INDEX IF NOT EXISTS idx_ir_exported_at ON installation_request(exported_at);
 

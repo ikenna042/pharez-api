@@ -1,5 +1,14 @@
 const Joi = require('joi');
 
+// Stored as typed; only its digits are compared for duplicates
+// (see InstallationRequest.isSealTaken).
+const sealNumberRule = Joi.string().max(100).required().trim().pattern(/\d/)
+  .messages({
+    'string.empty': 'Seal number is required',
+    'any.required': 'Seal number is required',
+    'string.pattern.base': 'Seal number must contain digits'
+  });
+
 const validationSchemas = {
   createUser: Joi.object({
     firstName: Joi.string().min(2).max(50).required().trim(),
@@ -467,7 +476,7 @@ const validationSchemas = {
   reportInstallation: Joi.object({
     meterNumber: Joi.string().max(100).required().trim()
       .messages({ 'string.empty': 'meterNumber is required' }),
-    sealNumber: Joi.string().max(100).optional().allow('', null).trim(),
+    sealNumber: sealNumberRule,
     installationDate: Joi.date().iso().optional().allow(null),
     latitude: Joi.number().min(-90).max(90).optional().allow(null),
     longitude: Joi.number().min(-180).max(180).optional().allow(null),
@@ -487,6 +496,11 @@ const validationSchemas = {
   }),
 
   revertInstallation: Joi.object({
+    reason: Joi.string().max(1000).optional().allow('', null).trim()
+  }),
+
+  updateInstallationSeal: Joi.object({
+    sealNumber: sealNumberRule,
     reason: Joi.string().max(1000).optional().allow('', null).trim()
   }),
 

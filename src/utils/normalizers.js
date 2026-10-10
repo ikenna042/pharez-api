@@ -15,6 +15,13 @@
 const headerKey = (header) => String(header ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 /**
+ * The part of a seal number that identifies it: its digits, leading zeros kept.
+ * Installers type seals with or without letters ('SL-004512', '004512'), so two
+ * seals with the same digits are the same seal.
+ */
+const sealDigits = (value) => String(value ?? '').replace(/\D/g, '');
+
+/**
  * Expand "8.92342003826809e+18" to "8923420038268090000" using string math only.
  *
  * Float arithmetic must not be used here: SIM serials are 19 digits, far beyond
@@ -249,6 +256,7 @@ const applyMapping = (rowValues, columns, fields, options = {}) => {
 
 module.exports = {
   headerKey,
+  sealDigits,
   expandScientific,
   restoreIntegerText,
   transforms,

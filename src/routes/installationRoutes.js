@@ -167,6 +167,29 @@ router.get(
 
 /**
  * @swagger
+ * /installations/seal-duplicates:
+ *   get:
+ *     summary: List installations sharing a seal number (SUPERADMIN only)
+ *     description: >
+ *       Groups installations whose seal numbers have the same digits (letters
+ *       and symbols are ignored). These were recorded before duplicate seals
+ *       were refused; correct them with PATCH /installations/{id}/seal.
+ *     tags: [Installations]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: "[{ digits, installations: [...] }], one entry per clashing seal"
+ */
+router.get(
+  '/seal-duplicates',
+  authenticate,
+  authorize(['SUPERADMIN']),
+  installationController.listSealDuplicates
+);
+
+/**
+ * @swagger
  * /installations/exports:
  *   get:
  *     summary: List generated response sheets
@@ -381,7 +404,10 @@ router.patch(
  *     description: >
  *       The meter named must currently be assigned to the calling installer and
  *       match the recommended phase. On success the request becomes INSTALLED and
- *       the meter becomes USED/INSTALLED in the same transaction.
+ *       the meter becomes USED/INSTALLED in the same transaction. The seal number
+ *       must contain digits, and its digits must not match any seal already
+ *       reported on another installation (letters and symbols are ignored, so
+ *       'SL-004512' and '004512' are the same seal).
  *     tags: [Installations]
  *     security:
  *       - bearerAuth: []
@@ -397,7 +423,7 @@ router.patch(
  *         application/json:
  *           schema:
  *             type: object
- *             required: [meterNumber]
+ *             required: [meterNumber, sealNumber]
  *             properties:
  *               meterNumber: { type: string, example: "0239110006909" }
  *               sealNumber: { type: string, example: "APLE0099123" }
@@ -416,6 +442,8 @@ router.patch(
  *         description: Installation is not assigned to you
  *       404:
  *         description: Installation or meter not found
+ *       409:
+ *         description: Seal number already exists
  */
 router.post(
   '/:id/report',
@@ -546,6 +574,53 @@ router.post(
   validateParams(schemas.idParam),
   validate(schemas.revertInstallation),
   installationController.revertInstallation
+);
+
+/**
+ * @swagger
+ * /installations/{id}/seal:
+ *   patch:
+ *     summary: Correct the seal number on a completed installation (SUPERADMIN only)
+ *     description: >
+ *       For INSTALLED or EXPORTED jobs, typically to clear a duplicate seal. The
+ *       new seal must contain digits and its digits must not match any other
+ *       installation's seal. An EXPORTED job's sheet already sent to the disco
+ *       still shows the old seal.
+ *     tags: [Installations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [sealNumber]
+ *             properties:
+ *               sealNumber: { type: string, example: "APLE0099124" }
+ *               reason: { type: string, example: Installer mistyped the seal }
+ *     responses:
+ *       200:
+ *         description: Seal number updated
+ *       400:
+ *         description: The installation is not completed, or the seal has no digits
+ *       404:
+ *         description: Installation not found
+ *       409:
+ *         description: Seal number already exists
+ */
+router.patch(
+  '/:id/seal',
+  authenticate,
+  authorize(['SUPERADMIN']),
+  validateParams(schemas.idParam),
+  validate(schemas.updateInstallationSeal),
+  installationController.updateInstallationSeal
 );
 
 /**
