@@ -155,6 +155,36 @@ const revertInstallation = asyncHandler(async (req, res) => {
   });
 });
 
+const SEAL_UPDATE_FAILURES = {
+  REQUEST_NOT_FOUND: () => [404, 'Installation request not found'],
+  NOT_INSTALLED: (r) => [400, `Only a completed installation has a seal to correct (this one is ${r.status})`],
+  SEAL_EXISTS: () => [409, 'Seal number already exists']
+};
+
+const updateInstallationSeal = asyncHandler(async (req, res) => {
+  if (!(await loadAccessibleRequest(req, res))) return;
+
+  const result = await InstallationRequest.updateSeal(req.params.id, req.body.sealNumber);
+
+  if (result.error) {
+    const [status, message] = SEAL_UPDATE_FAILURES[result.error](result);
+    return res.status(status).json({ success: false, message });
+  }
+
+  console.warn(
+    `[installations] ${req.user.id} changed the seal on installation ${req.params.id} `
+    + `from ${result.previousSeal || 'none'} to ${result.request.sealNumber}`
+    + (req.body.reason ? `: ${req.body.reason}` : '')
+  );
+
+  res.json({ success: true, message: 'Seal number updated', data: result.request });
+});
+
+const listSealDuplicates = asyncHandler(async (req, res) => {
+  const groups = await InstallationRequest.findSealDuplicates();
+  res.json({ success: true, data: groups });
+});
+
 /* --------------------------- installer --------------------------- */
 
 const getMyJobs = asyncHandler(async (req, res) => {
@@ -204,7 +234,8 @@ const REPORT_FAILURES = {
   METER_NOT_FOUND: () => [404, 'Meter not found'],
   METER_NOT_YOURS: () => [400, 'That meter is not assigned to you'],
   PHASE_MISMATCH: (r) => [400, `Meter type mismatch. Required: ${r.required}, provided: ${r.provided}`],
-  METER_WRONG_DISCO: () => [400, "That meter belongs to a different disco's stock than this installation"]
+  METER_WRONG_DISCO: () => [400, "That meter belongs to a different disco's stock than this installation"],
+  SEAL_EXISTS: () => [409, 'Seal number already exists']
 };
 
 const reportInstallation = asyncHandler(async (req, res) => {
@@ -355,6 +386,8 @@ module.exports = {
   getInstallationById,
   cancelInstallation,
   revertInstallation,
+  updateInstallationSeal,
+  listSealDuplicates,
   getMyJobs,
   getMyMeters,
   startInstallation,

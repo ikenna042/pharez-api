@@ -1,9 +1,29 @@
 const {
   headerKey,
+  sealDigits,
   transforms,
   resolveColumns,
   applyMapping
 } = require('../src/utils/normalizers');
+
+describe('sealDigits', () => {
+  it('keeps only the digits, leading zeros included', () => {
+    expect(sealDigits('SL-004512')).toBe('004512');
+    expect(sealDigits('AB004512')).toBe('004512');
+    expect(sealDigits('004512')).toBe('004512');
+    expect(sealDigits('AB 12-34')).toBe('1234');
+  });
+
+  it('treats differently padded seals as different', () => {
+    expect(sealDigits('4512')).not.toBe(sealDigits('004512'));
+  });
+
+  it('returns an empty string when there are no digits', () => {
+    expect(sealDigits('ABC')).toBe('');
+    expect(sealDigits(null)).toBe('');
+    expect(sealDigits(undefined)).toBe('');
+  });
+});
 
 describe('headerKey', () => {
   it('normalizes real Aba Power headers for matching', () => {

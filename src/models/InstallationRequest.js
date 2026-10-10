@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { sealDigits } = require('../utils/normalizers');
 
 // Which statuses a transition may legally start from. Exported so the state
 // machine can be asserted in tests without a database.
@@ -385,6 +386,11 @@ class InstallationRequest {
         return { error: 'ILLEGAL_TRANSITION', status: request.status };
       }
 
+      if (await this.isSealTaken(client, sealNumber, requestId)) {
+        await client.query('ROLLBACK');
+        return { error: 'SEAL_EXISTS' };
+      }
+
       const meterResult = await client.query(
         'SELECT * FROM meters WHERE meter_number = $1 FOR UPDATE',
         [meterNumber]
@@ -495,6 +501,115 @@ class InstallationRequest {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Whether another installation already carries this seal. A seal is reported
+   * once, across every disco, and only its digits identify it, so 'SL-004512'
+   * and '004512' clash. Must run inside the caller's transaction: two requests
+   * with the same seal at once would both pass a plain SELECT, so the
+   * transaction-scoped lock makes the second wait until the first commits.
+   * The expression matches idx_ir_seal_digits so the lookup is indexed.
+   */
+  static async isSealTaken(client, sealNumber, excludeId) {
+    const digits = sealDigits(sealNumber);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('seal:' || $1))", [digits]);
+    const taken = await client.query(
+      `SELECT 1 FROM installation_request
+       WHERE regexp_replace(seal_number, '[^0-9]', '', 'g') = $1 AND id <> $2
+       LIMIT 1`,
+      [digits, excludeId]
+    );
+    return taken.rows.length > 0;
+  }
+
+  /**
+   * Correct the seal on a completed installation (SUPERADMIN). Exists mainly to
+   * clear duplicates recorded before the duplicate check: the new seal must
+   * itself be unique. EXPORTED jobs are allowed, since many duplicates will
+   * already have been sent to the disco; the caller logs the change.
+   *
+   * Returns { request, previousSeal } or { error } for the controller to map.
+   */
+  static async updateSeal(id, sealNumber) {
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const found = await client.query(
+        'SELECT status, seal_number FROM installation_request WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+      if (found.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { error: 'REQUEST_NOT_FOUND' };
+      }
+
+      const { status, seal_number: previousSeal } = found.rows[0];
+      if (!['INSTALLED', 'EXPORTED'].includes(status)) {
+        await client.query('ROLLBACK');
+        return { error: 'NOT_INSTALLED', status };
+      }
+
+      if (await this.isSealTaken(client, sealNumber, id)) {
+        await client.query('ROLLBACK');
+        return { error: 'SEAL_EXISTS' };
+      }
+
+      await client.query(
+        'UPDATE installation_request SET seal_number = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [sealNumber, id]
+      );
+
+      await client.query('COMMIT');
+      return { request: await this.findById(id), previousSeal };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Installations whose seals share the same digits, grouped by those digits.
+   * These predate the duplicate check; a SUPERADMIN fixes them with updateSeal.
+   */
+  static async findSealDuplicates() {
+    const result = await pool.query(
+      `WITH seals AS (
+         SELECT r.id, regexp_replace(r.seal_number, '[^0-9]', '', 'g') AS digits,
+                r.seal_number, r.status, r.account_number, r.customer_name,
+                r.meter_number, r.reported_at, d.code AS disco_code,
+                u.first_name || ' ' || u.last_name AS installer_name
+         FROM installation_request r
+         JOIN discos d ON d.id = r.disco_id
+         LEFT JOIN users u ON u.id = r.installed_by
+         WHERE r.seal_number IS NOT NULL
+       )
+       SELECT * FROM seals
+       WHERE digits IN (SELECT digits FROM seals GROUP BY digits HAVING COUNT(*) > 1)
+       ORDER BY digits, reported_at NULLS LAST, id`
+    );
+
+    const groups = new Map();
+    result.rows.forEach((row) => {
+      if (!groups.has(row.digits)) groups.set(row.digits, []);
+      groups.get(row.digits).push({
+        id: row.id,
+        discoCode: row.disco_code,
+        accountNumber: row.account_number,
+        customerName: row.customer_name,
+        sealNumber: row.seal_number,
+        meterNumber: row.meter_number,
+        status: row.status,
+        installerName: row.installer_name,
+        reportedAt: row.reported_at
+      });
+    });
+
+    return [...groups].map(([digits, installations]) => ({ digits, installations }));
   }
 
   /** Record a failed attempt. The meter stays with the installer for the retry. */
