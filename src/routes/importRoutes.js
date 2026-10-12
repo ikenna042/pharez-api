@@ -102,6 +102,10 @@ router.get(
  *     description: >
  *       Creates PENDING installation requests. Rows whose account number already
  *       exists for this disco are skipped, not errored. Returns a batch summary.
+ *       If any skipped account is already INSTALLED or EXPORTED, data.completedExport
+ *       is { rowCount, fileName, downloadUrl, expiresAt }: a link to the disco's
+ *       normal response sheet for just those accounts (also appended to the
+ *       message). Otherwise it is null.
  *     tags: [Imports]
  *     security:
  *       - bearerAuth: []
@@ -138,6 +142,37 @@ router.post(
   validateParams(schemas.discoCodeParam),
   upload.single('file'),
   importController.importPendingInstallations
+);
+
+/**
+ * @swagger
+ * /imports/completed-exports/{token}:
+ *   get:
+ *     summary: Download the response sheet for already-completed accounts in an import
+ *     description: >
+ *       The link returned as completedExport.downloadUrl by a pending-installations
+ *       import. Needs no login: the token is the credential, and it expires after
+ *       7 days. The sheet is the disco's normal installation response, rebuilt from
+ *       current data on every request, for the accounts in that import that were
+ *       already INSTALLED or EXPORTED. No status is changed.
+ *     tags: [Imports]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: The .xlsx file
+ *       404:
+ *         description: Unknown link, or none of its installations are still completed
+ *       410:
+ *         description: Link expired
+ */
+router.get(
+  '/completed-exports/:token',
+  validateParams(schemas.completedExportTokenParam),
+  importController.downloadCompletedExport
 );
 
 /**

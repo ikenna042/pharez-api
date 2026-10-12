@@ -210,11 +210,13 @@ class InstallationRequest {
     const result = await pool.query(
       `SELECT r.*, d.code AS disco_code, d.name AS disco_name,
               u.first_name || ' ' || u.last_name AS installer_name,
-              a.first_name || ' ' || a.last_name AS assignee_name
+              a.first_name || ' ' || a.last_name AS assignee_name,
+              c.first_name || ' ' || c.last_name AS completed_by_name
        FROM installation_request r
        JOIN discos d ON d.id = r.disco_id
        LEFT JOIN users u ON u.id = r.installed_by
        LEFT JOIN users a ON a.id = r.assigned_to
+       LEFT JOIN users c ON c.id = r.completed_by
        WHERE r.id = $1`,
       [id]
     );
@@ -309,11 +311,13 @@ class InstallationRequest {
     const result = await pool.query(
       `SELECT r.*, d.code AS disco_code,
               u.first_name || ' ' || u.last_name AS installer_name,
-              a.first_name || ' ' || a.last_name AS assignee_name
+              a.first_name || ' ' || a.last_name AS assignee_name,
+              c.first_name || ' ' || c.last_name AS completed_by_name
        FROM installation_request r
        JOIN discos d ON d.id = r.disco_id
        LEFT JOIN users u ON u.id = r.installed_by
        LEFT JOIN users a ON a.id = r.assigned_to
+       LEFT JOIN users c ON c.id = r.completed_by
        ${where}
        ORDER BY r.created_at DESC, r.id DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -351,11 +355,16 @@ class InstallationRequest {
    * The core write of the whole flow. One transaction, both rows locked.
    *
    * Returns a discriminated result rather than throwing, so the controller maps
-   * each refusal to its own HTTP status. The meter check is the enforcement of
-   * "an installer may only fit a meter that is actually in their hands".
+   * each refusal to its own HTTP status.
+   *
+   * The assigned installer completes their own job; a SUPERVISOR, ADMIN or
+   * SUPERADMIN may complete it on their behalf (byAssignee false, disco access
+   * checked by the caller). Either way the job's installer stays the installer
+   * of record (installed_by) and completedById records who submitted. The meter
+   * must be in the installer's hands, whoever submits.
    */
   static async recordInstallation({
-    requestId, installerId, meterNumber, sealNumber, installationDate,
+    requestId, completedById, byAssignee, meterNumber, sealNumber, installationDate,
     latitude, longitude, installationPhotoUrl, discoSupervisor, notes
   }) {
     const Meter = require('./Meter');
@@ -375,8 +384,9 @@ class InstallationRequest {
       }
 
       const request = requestResult.rows[0];
+      const installerId = request.assigned_to;
 
-      if (String(request.assigned_to) !== String(installerId)) {
+      if (byAssignee && String(installerId) !== String(completedById)) {
         await client.query('ROLLBACK');
         return { error: 'NOT_ASSIGNED_TO_YOU' };
       }
@@ -405,7 +415,10 @@ class InstallationRequest {
 
       if (meter.assignment_status !== 'ASSIGNED' || String(meter.assigned_to) !== String(installerId)) {
         await client.query('ROLLBACK');
-        return { error: 'METER_NOT_YOURS', assignmentStatus: meter.assignment_status };
+        return {
+          error: byAssignee ? 'METER_NOT_YOURS' : 'METER_NOT_INSTALLERS',
+          assignmentStatus: meter.assignment_status
+        };
       }
 
       // Meter stock belongs to a disco: one disco's meter can't go on another
@@ -474,7 +487,7 @@ class InstallationRequest {
              installation_photo_url = $7, disco_supervisor = $8,
              installation_notes = $9, installed_by = $10,
              payment_amount = $11, meter_type_id = $12,
-             meter_type = COALESCE(meter_type, $14),
+             meter_type = COALESCE(meter_type, $14), completed_by = $15,
              payment_status = 'EARNED', payment_source = 'PRICE_BOOK',
              reported_at = CURRENT_TIMESTAMP, failure_reason = NULL,
              updated_at = CURRENT_TIMESTAMP
@@ -488,13 +501,15 @@ class InstallationRequest {
           priceRow ? priceRow.amount : null,
           priceRow ? priceRow.id : null,
           requestId,
-          installedMeterType
+          installedMeterType,
+          completedById
         ]
       );
 
       await client.query('COMMIT');
 
-      return { request: this.format(updated.rows[0]), meterNumber: meter.meter_number };
+      // Re-read for the installer's and completer's names, which RETURNING lacks.
+      return { request: await this.findById(updated.rows[0].id), meterNumber: meter.meter_number };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -725,7 +740,7 @@ class InstallationRequest {
              meter_id = NULL, meter_number = NULL, seal_number = NULL,
              installation_date = NULL, latitude = NULL, longitude = NULL,
              installation_photo_url = NULL, disco_supervisor = NULL,
-             installed_by = NULL, reported_at = NULL,
+             installed_by = NULL, completed_by = NULL, reported_at = NULL,
              installation_notes = NULL, failure_reason = NULL,
              payment_amount = NULL, payment_status = NULL, payment_source = NULL,
              meter_type_id = NULL,
@@ -746,12 +761,13 @@ class InstallationRequest {
   }
 
   /** Rows for a disco's response sheet, with the installer's name resolved. */
-  static async findForExport({ discoId, statuses = ['INSTALLED'], from, to }) {
+  static async findForExport({ discoId, statuses = ['INSTALLED'], from, to, ids }) {
     const params = [discoId, statuses];
     let dateFilter = '';
 
     if (from) { params.push(from); dateFilter += ` AND r.reported_at >= $${params.length}`; }
     if (to) { params.push(to); dateFilter += ` AND r.reported_at < $${params.length}`; }
+    if (ids) { params.push(ids); dateFilter += ` AND r.id = ANY($${params.length}::int[])`; }
 
     const result = await pool.query(
       `SELECT r.*, d.code AS disco_code,
@@ -831,6 +847,8 @@ class InstallationRequest {
       discoSupervisor: row.disco_supervisor,
       installedBy: row.installed_by,
       installerName: row.installer_name,
+      completedBy: row.completed_by ?? null,
+      completedByName: row.completed_by_name ?? null,
       reportedAt: row.reported_at,
       installationNotes: row.installation_notes,
       failureReason: row.failure_reason,

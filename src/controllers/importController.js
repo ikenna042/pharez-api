@@ -1,5 +1,10 @@
+const pool = require('../config/database');
+const Disco = require('../models/Disco');
 const ImportBatch = require('../models/ImportBatch');
+const ExportBatch = require('../models/ExportBatch');
+const InstallationRequest = require('../models/InstallationRequest');
 const DiscoImportService = require('../services/discoImportService');
+const InstallationExportService = require('../services/installationExportService');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { canAccessDisco, resolveAccessibleDisco, resolveListScope } = require('../utils/discoAccess');
 
@@ -25,14 +30,22 @@ const requireFile = (req, res) => {
 
 const respondToImport = (res, batch) => {
   const { skippedDetails, ...summary } = batch;
+  const { completedExport } = summary;
+
+  let message = summary.created > 0
+    ? 'Import completed'
+    : 'Import completed, but no new records were created';
+
+  // Also in the message so the link shows wherever the message does, without
+  // the frontend having to know about completedExport.
+  if (completedExport && completedExport.downloadUrl) {
+    message += `. ${completedExport.rowCount} already-completed installation(s) found; download: ${completedExport.downloadUrl}`;
+  }
 
   // 201 when something landed, 200 when the file was valid but wholly redundant.
   return res.status(summary.created > 0 ? 201 : 200).json({
     success: true,
-    message:
-      summary.created > 0
-        ? 'Import completed'
-        : 'Import completed, but no new records were created',
+    message,
     data: { ...summary, skippedDetails: (skippedDetails || []).slice(0, 50) }
   });
 };
@@ -65,6 +78,58 @@ const importMeterInventory = asyncHandler(async (req, res) => {
   });
 
   return respondToImport(res, batch);
+});
+
+/**
+ * The response sheet for the already-completed accounts an import repeated.
+ * Opened as a plain link, so the token is the only credential (as with
+ * /files/:token). Rebuilt from current data on every request; jobs reverted
+ * since the import drop out.
+ */
+const downloadCompletedExport = asyncHandler(async (req, res) => {
+  const batch = await ImportBatch.findByCompletedExportToken(req.params.token);
+  if (!batch) {
+    return res.status(404).json({ success: false, message: 'Download link not found' });
+  }
+  if (new Date(batch.expiresAt) < new Date()) {
+    return res.status(410).json({ success: false, message: 'Download link expired' });
+  }
+
+  const disco = await Disco.findById(batch.discoId);
+  const template = Disco.getExportTemplate(disco, 'installationResponse');
+  if (!template) {
+    return res.status(400).json({
+      success: false,
+      message: `Disco ${disco.code} has no installationResponse export template configured`
+    });
+  }
+
+  const statuses = ['INSTALLED', 'EXPORTED'];
+  const rows = await InstallationRequest.findForExport({ discoId: disco.id, statuses, ids: batch.requestIds });
+  if (rows.length === 0) {
+    return res.status(404).json({ success: false, message: 'No completed installations left to export' });
+  }
+
+  const buffer = InstallationExportService.buildWorkbook(rows, template);
+  const fileName = InstallationExportService.buildFileName(template, disco.code);
+
+  // Recorded like any other export; nothing is marked exported.
+  await ExportBatch.create(
+    {
+      discoId: disco.id,
+      discoCode: disco.code,
+      filters: { statuses, source: 'IMPORT_COMPLETED_DUPLICATES', importBatchId: batch.id },
+      rowCount: rows.length,
+      fileName,
+      markedExported: false,
+      generatedBy: batch.uploadedBy
+    },
+    pool
+  );
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  return res.send(buffer);
 });
 
 const listImportBatches = asyncHandler(async (req, res) => {
@@ -135,6 +200,7 @@ const downloadMeterInventoryTemplate = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  downloadCompletedExport,
   importPendingInstallations,
   importMeterInventory,
   listImportBatches,

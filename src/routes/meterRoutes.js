@@ -174,6 +174,14 @@ router.get('/export', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISO
  *         schema:
  *           type: string
  *           enum: [SINGLE PHASE, THREE PHASE]
+ *       - in: query
+ *         name: assignedTo
+ *         description: >
+ *           Installer's user id. Returns only meters that installer currently
+ *           holds, e.g. to pick one when completing a job on their behalf.
+ *         schema:
+ *           type: string
+ *           format: uuid
  *     responses:
  *       200:
  *         description: List of meters

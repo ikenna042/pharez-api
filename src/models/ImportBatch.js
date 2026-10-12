@@ -1,5 +1,9 @@
 const pool = require('../config/database');
 
+// How long a completed-export link works. The link needs no login and the sheet
+// carries customer details, so it doesn't live forever.
+const COMPLETED_EXPORT_TTL_DAYS = 7;
+
 /**
  * One spreadsheet upload. Records what was imported, how it went, and the
  * per-row errors, so a failed import is diagnosable after the fact.
@@ -54,6 +58,46 @@ class ImportBatch {
     );
 
     return result.rows.length === 0 ? null : this.format(result.rows[0]);
+  }
+
+  /**
+   * Remember which already-completed installations this import's sheet
+   * repeated, and issue the link token for their response sheet. Returns
+   * { token, expiresAt }.
+   */
+  static async setCompletedExport(id, requestIds, client = pool) {
+    const result = await client.query(
+      `UPDATE import_batches
+       SET completed_request_ids = $1::int[],
+           completed_export_token = gen_random_uuid(),
+           completed_export_expires_at = CURRENT_TIMESTAMP + INTERVAL '${COMPLETED_EXPORT_TTL_DAYS} days'
+       WHERE id = $2
+       RETURNING completed_export_token, completed_export_expires_at`,
+      [requestIds, id]
+    );
+
+    const row = result.rows[0];
+    return { token: row.completed_export_token, expiresAt: row.completed_export_expires_at };
+  }
+
+  /** The batch a completed-export link belongs to, or null. */
+  static async findByCompletedExportToken(token) {
+    const result = await pool.query(
+      `SELECT id, disco_id, uploaded_by, completed_request_ids, completed_export_expires_at
+       FROM import_batches WHERE completed_export_token = $1`,
+      [token]
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      discoId: row.disco_id,
+      uploadedBy: row.uploaded_by,
+      requestIds: row.completed_request_ids,
+      expiresAt: row.completed_export_expires_at
+    };
   }
 
   static async fail(id, message, client = pool) {

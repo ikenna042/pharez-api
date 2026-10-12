@@ -4,6 +4,8 @@ const ExcelService = require('../services/excelService');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { canAccessDisco, resolveAccessibleDisco, resolveListScope } = require('../utils/discoAccess');
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // A meter in a disco the caller isn't profiled for reads as not found.
 const meterNotFound = (res) => res.status(404).json({ success: false, message: 'Meter not found' });
 
@@ -79,12 +81,18 @@ const exportMeters = asyncHandler(async (req, res) => {
 });
 
 const getMeters = asyncHandler(async (req, res) => {
-  const { page, limit, status, phaseType, discoCode } = req.query;
+  const { page, limit, status, phaseType, discoCode, assignedTo } = req.query;
+
+  // Checked here because assigned_to is a uuid column: a malformed id would
+  // otherwise surface as a Postgres cast error and a 500.
+  if (assignedTo && !UUID_PATTERN.test(assignedTo)) {
+    return res.status(400).json({ success: false, message: 'assignedTo must be a valid user id' });
+  }
 
   const scope = await resolveListScope(req, res, discoCode);
   if (!scope) return;
 
-  const result = await Meter.findAll({ page, limit, status, phaseType, discoIds: scope.discoIds });
+  const result = await Meter.findAll({ page, limit, status, phaseType, assignedTo, discoIds: scope.discoIds });
 
   res.json({
     success: true,

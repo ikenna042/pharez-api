@@ -402,9 +402,13 @@ router.patch(
  *   post:
  *     summary: Report a completed installation
  *     description: >
- *       The meter named must currently be assigned to the calling installer and
- *       match the recommended phase. On success the request becomes INSTALLED and
- *       the meter becomes USED/INSTALLED in the same transaction. The seal number
+ *       The assigned installer completes their own job. A SUPERVISOR, ADMIN or
+ *       SUPERADMIN may complete any ASSIGNED or IN_PROGRESS job in a disco they
+ *       can access, on the installer's behalf: the installer stays the installer
+ *       of record (installedBy) and completedBy records who submitted. The meter
+ *       named must currently be assigned to the job's installer and match the
+ *       recommended phase. On success the request becomes INSTALLED and the
+ *       meter becomes USED/INSTALLED in the same transaction. The seal number
  *       must contain digits, and its digits must not match any seal already
  *       reported on another installation (letters and symbols are ignored, so
  *       'SL-004512' and '004512' are the same seal).
@@ -437,9 +441,9 @@ router.patch(
  *       200:
  *         description: Installation recorded
  *       400:
- *         description: Meter not assigned to you, phase mismatch, or illegal transition
+ *         description: Meter not held by the job's installer, phase mismatch, or illegal transition
  *       403:
- *         description: Installation is not assigned to you
+ *         description: (installer) Installation is not assigned to you
  *       404:
  *         description: Installation or meter not found
  *       409:
@@ -448,7 +452,7 @@ router.patch(
 router.post(
   '/:id/report',
   authenticate,
-  authorize(['INSTALLER']),
+  authorize(['INSTALLER', 'SUPERVISOR', 'ADMIN', 'SUPERADMIN']),
   validateParams(schemas.idParam),
   validate(schemas.reportInstallation),
   installationController.reportInstallation

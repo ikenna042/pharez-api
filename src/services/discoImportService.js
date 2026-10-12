@@ -4,6 +4,8 @@ const Disco = require('../models/Disco');
 const ImportBatch = require('../models/ImportBatch');
 const InstallationRequest = require('../models/InstallationRequest');
 const Meter = require('../models/Meter');
+const InstallationExportService = require('./installationExportService');
+const { resolveApiBaseUrl } = require('../config/swaggerServers');
 const { resolveColumns, applyMapping, restoreIntegerText } = require('../utils/normalizers');
 
 /**
@@ -123,6 +125,42 @@ class DiscoImportService {
     return { config, sheetName, dataRows, clean, errors };
   }
 
+  /**
+   * Skipped rows are accounts that already exist. Those already installed (or
+   * exported) get a response sheet in the disco's normal format, offered as a
+   * link: GET /imports/completed-exports/:token rebuilds it on request, since
+   * the file isn't stored. Statuses aren't touched. Returns null when no
+   * skipped account is completed.
+   */
+  static async offerCompletedExport(batchId, disco, skipped, client) {
+    const accountNumbers = skipped.map((s) => s.accountNumber);
+    if (accountNumbers.length === 0) return null;
+
+    const found = await client.query(
+      `SELECT id FROM installation_request
+       WHERE disco_id = $1 AND account_number = ANY($2::varchar[])
+         AND status IN ('INSTALLED', 'EXPORTED')
+       ORDER BY id`,
+      [disco.id, accountNumbers]
+    );
+    if (found.rows.length === 0) return null;
+
+    const rowCount = found.rows.length;
+    const template = Disco.getExportTemplate(disco, 'installationResponse');
+    if (!template) {
+      return { rowCount, error: `Disco ${disco.code} has no installationResponse export template configured` };
+    }
+
+    const { token, expiresAt } = await ImportBatch.setCompletedExport(batchId, found.rows.map((r) => r.id), client);
+
+    return {
+      rowCount,
+      fileName: InstallationExportService.buildFileName(template, disco.code),
+      downloadUrl: `${resolveApiBaseUrl()}/imports/completed-exports/${token}`,
+      expiresAt
+    };
+  }
+
   static async importPendingInstallations({ buffer, fileName, fileSize, disco, uploadedBy }) {
     const { sheetName, dataRows, clean, errors } = this.prepare(buffer, disco, 'pendingInstallations');
 
@@ -179,9 +217,11 @@ class DiscoImportService {
         client
       );
 
+      const completedExport = await this.offerCompletedExport(batch.id, disco, result.skipped, client);
+
       await client.query('COMMIT');
 
-      return { ...completed, skippedDetails: result.skipped };
+      return { ...completed, skippedDetails: result.skipped, completedExport };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;

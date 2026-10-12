@@ -333,6 +333,11 @@ const validationSchemas = {
   // Anything else must be rejected here, same reasoning as schemas.userId --
   // letting it through reaches Postgres as "invalid input syntax for type
   // uuid" and surfaces as a 500 rather than a 400.
+  completedExportTokenParam: Joi.object({
+    token: Joi.string().guid().required()
+      .messages({ 'string.guid': 'token must be a valid download token' })
+  }),
+
   fileTokenParam: Joi.object({
     token: Joi.string().guid({ version: ['uuidv4'] }).required()
       .messages({ 'string.guid': 'token must be a valid file token' })
