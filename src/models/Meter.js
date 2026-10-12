@@ -33,7 +33,7 @@ class Meter {
   }
 
   static async findAll(options = {}) {
-    const { page = 1, limit = 10, status, phaseType, search, discoIds = null } = options;
+    const { page = 1, limit = 10, status, phaseType, search, assignedTo, discoIds = null } = options;
     const offset = (page - 1) * limit;
 
     let query = 'SELECT * FROM meters WHERE 1=1';
@@ -56,6 +56,14 @@ class Meter {
       paramCount++;
       query += ` AND (meter_number ILIKE $${paramCount} OR sim_number ILIKE $${paramCount})`;
       queryParams.push(`%${search}%`);
+    }
+
+    // Meters an installer currently holds, e.g. to pick one when completing a
+    // job on their behalf. Used or returned meters keep no hold.
+    if (assignedTo) {
+      paramCount++;
+      query += ` AND assigned_to = $${paramCount} AND assignment_status = 'ASSIGNED'`;
+      queryParams.push(assignedTo);
     }
 
     // null = every disco; [] = none (a scoped user with no discos).
@@ -91,6 +99,12 @@ class Meter {
       countParamCount++;
       countQuery += ` AND (meter_number ILIKE $${countParamCount} OR sim_number ILIKE $${countParamCount})`;
       countParams.push(`%${search}%`);
+    }
+
+    if (assignedTo) {
+      countParamCount++;
+      countQuery += ` AND assigned_to = $${countParamCount} AND assignment_status = 'ASSIGNED'`;
+      countParams.push(assignedTo);
     }
 
     if (discoIds) {

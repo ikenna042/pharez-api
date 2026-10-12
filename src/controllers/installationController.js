@@ -233,16 +233,24 @@ const REPORT_FAILURES = {
   ILLEGAL_TRANSITION: (r) => [400, `Cannot report a ${r.status} installation`],
   METER_NOT_FOUND: () => [404, 'Meter not found'],
   METER_NOT_YOURS: () => [400, 'That meter is not assigned to you'],
+  METER_NOT_INSTALLERS: () => [400, "That meter is not assigned to this job's installer"],
   PHASE_MISMATCH: (r) => [400, `Meter type mismatch. Required: ${r.required}, provided: ${r.provided}`],
   METER_WRONG_DISCO: () => [400, "That meter belongs to a different disco's stock than this installation"],
   SEAL_EXISTS: () => [409, 'Seal number already exists']
 };
 
+// The assigned installer completes their own job. SUPERVISOR, ADMIN and
+// SUPERADMIN may complete any assigned job in a disco they can access; the
+// installer stays on record and completedBy records who submitted.
 const reportInstallation = asyncHandler(async (req, res) => {
+  const byAssignee = req.user.role === 'INSTALLER';
+  if (!byAssignee && !(await loadAccessibleRequest(req, res))) return;
+
   const result = await InstallationRequest.recordInstallation({
+    ...req.body,
     requestId: req.params.id,
-    installerId: req.user.id,
-    ...req.body
+    completedById: req.user.id,
+    byAssignee
   });
 
   if (result.error) {

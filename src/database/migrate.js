@@ -504,6 +504,29 @@ const alterInstallationRequestAddRevenue = `
     CHECK (payment_status IS NULL OR payment_status IN ('EARNED', 'ESTIMATED'));
 `;
 
+// Who submitted the completion. installed_by stays the job's assigned installer
+// (it is the "Installer Name" on the disco export), but a SUPERVISOR, ADMIN or
+// SUPERADMIN may complete the job on their behalf. Until that existed only the
+// installer could complete, so completed rows are backfilled from installed_by.
+const alterInstallationRequestAddCompletedBy = (uid) => `
+  ALTER TABLE installation_request
+    ADD COLUMN IF NOT EXISTS completed_by ${uid} REFERENCES users(id);
+
+  UPDATE installation_request SET completed_by = installed_by
+  WHERE completed_by IS NULL AND status IN ('INSTALLED', 'EXPORTED');
+`;
+
+// A pending-installations import whose sheet repeats accounts that are already
+// installed offers a response sheet for just those. The file isn't stored: the
+// ids are kept here and the sheet is rebuilt whenever the link is opened. The
+// token is the link's only credential, so it expires.
+const alterImportBatchesAddCompletedExport = `
+  ALTER TABLE import_batches
+    ADD COLUMN IF NOT EXISTS completed_request_ids INTEGER[] NOT NULL DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS completed_export_token UUID UNIQUE,
+    ADD COLUMN IF NOT EXISTS completed_export_expires_at TIMESTAMP WITH TIME ZONE;
+`;
+
 // GIN trigram indexes backing the search endpoints. A trigram index is what
 // makes ILIKE '%term%' (a substring match, not just a prefix) fast at scale --
 // a plain btree index can only help with a leading-anchor pattern ('term%').
@@ -787,6 +810,12 @@ const runMigration = async (options = {}) => {
 
     await client.query(alterInstallationRequestAddRevenue);
     console.log('✅ Ensured revenue columns exist on installation_request');
+
+    await client.query(alterInstallationRequestAddCompletedBy(userIdType));
+    console.log('✅ Ensured completed_by exists on installation_request');
+
+    await client.query(alterImportBatchesAddCompletedExport);
+    console.log('✅ Ensured completed-export columns exist on import_batches');
 
     // Create indexes (including new tables)
     await client.query(createIndexes);
