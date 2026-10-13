@@ -190,6 +190,89 @@ router.get(
 
 /**
  * @swagger
+ * /installations/custom-export/fields:
+ *   get:
+ *     summary: What the custom export can show, filter and group on
+ *     description: >
+ *       Every field the caller's role may use (key, label, section, type, filter
+ *       operators, whether it can be grouped on, enum values, default column),
+ *       plus date presets, date buckets, metrics, formats and row limits. Build
+ *       the export screen from this.
+ *     tags: [Installations]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: The catalogue
+ */
+router.get(
+  '/custom-export/fields',
+  authenticate,
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
+  installationController.getCustomExportFields
+);
+
+/**
+ * @swagger
+ * /installations/custom-export:
+ *   post:
+ *     summary: Export installations with chosen columns, filters and grouping
+ *     description: >
+ *       Returns an Excel workbook (Data, optional Totals, Summary sheets) or a
+ *       CSV (rows, or the totals when groupBy is set). Filters are ANDed. Date
+ *       filters are whole calendar days in Lagos time, both ends included.
+ *       Limited to the caller's discos. At most 100,000 rows for Excel and
+ *       500,000 for CSV.
+ *     tags: [Installations]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               format: { type: string, enum: [xlsx, csv], default: xlsx }
+ *               discoCodes: { type: array, items: { type: string }, example: [ABA_POWER] }
+ *               columns: { type: array, items: { type: string }, example: [accountNumber, customerName, status, installerName, reportedAt] }
+ *               filters:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     field: { type: string, example: reportedAt }
+ *                     op: { type: string, example: between }
+ *                     value: { example: ["2026-10-01", "2026-10-12"] }
+ *               groupBy: { type: array, items: { type: string }, example: ["installerName", "reportedAt:week"] }
+ *               metrics: { type: array, items: { type: string }, example: [count, withPicture] }
+ *               sort:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     field: { type: string }
+ *                     dir: { type: string, enum: [asc, desc] }
+ *     responses:
+ *       200:
+ *         description: The .xlsx or .csv file
+ *       400:
+ *         description: Invalid request (every problem listed in errors), or too many rows
+ *       403:
+ *         description: A requested disco the caller can't access
+ *       404:
+ *         description: No installations match, or unknown disco
+ */
+router.post(
+  '/custom-export',
+  authenticate,
+  authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISOR']),
+  validate(schemas.installationCustomExport),
+  installationController.customExport
+);
+
+/**
+ * @swagger
  * /installations/exports:
  *   get:
  *     summary: List generated response sheets

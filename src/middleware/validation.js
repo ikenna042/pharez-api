@@ -504,6 +504,26 @@ const validationSchemas = {
     reason: Joi.string().max(1000).optional().allow('', null).trim()
   }),
 
+  // Shape only. Field names, operators and values are checked against the
+  // catalogue by InstallationCustomExportService.validate.
+  installationCustomExport: Joi.object({
+    // Checked with everything else by the service, so all errors come back together.
+    format: Joi.string().max(10).optional(),
+    discoCodes: Joi.array().items(Joi.string().trim().uppercase()).max(20).optional(),
+    columns: Joi.array().items(Joi.string().max(60)).max(100).optional(),
+    filters: Joi.array().items(Joi.object({
+      field: Joi.string().max(60).required(),
+      op: Joi.string().max(20).required(),
+      value: Joi.any()
+    })).max(50).optional(),
+    groupBy: Joi.array().items(Joi.string().max(70)).max(4).optional(),
+    metrics: Joi.array().items(Joi.string().max(40)).max(20).optional(),
+    sort: Joi.array().items(Joi.object({
+      field: Joi.string().max(60).required(),
+      dir: Joi.string().valid('asc', 'desc', 'ASC', 'DESC').optional()
+    })).max(3).optional()
+  }),
+
   updateInstallationSeal: Joi.object({
     sealNumber: sealNumberRule,
     reason: Joi.string().max(1000).optional().allow('', null).trim()

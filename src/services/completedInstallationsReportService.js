@@ -15,25 +15,9 @@ const ExcelJS = require('exceljs');
  *    imported jobs, so the blank-column rule drops them, as in the portal.
  */
 
-const TYPES = Object.freeze({
-  TEXT: 'text',
-  COORDINATE: 'coordinate',
-  DATE: 'date',
-  DATETIME: 'datetime',
-  LINK: 'link'
-});
-
-const NUM_FMT = {
-  text: '@',
-  coordinate: '0.000000',
-  date: 'dd mmm yyyy',
-  datetime: 'dd mmm yyyy hh:mm',
-  link: '@'
-};
-
-// The portal writes dates and times in the viewer's local time. Its users are
-// in Nigeria, so the server writes Lagos wall-clock time to match.
-const TIME_ZONE = 'Africa/Lagos';
+const {
+  TYPES, isBlank, lagosParts, addSheet, formatGeneratedAt
+} = require('../utils/xlsxWriter');
 
 const STATUS_LABELS = {
   PENDING: 'Unassigned',
@@ -46,26 +30,8 @@ const STATUS_LABELS = {
 };
 
 const PLAIN_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const HTTP_URL_RE = /^https?:\/\/\S+$/i;
 
-const isBlank = (v) => v === null || v === undefined || String(v).trim() === '';
 const pick = (...values) => values.find((v) => !isBlank(v));
-
-/** { y, mo (0-based), d, h, mi, s } of an instant in Lagos time. */
-const lagosParts = (value) => {
-  const t = new Date(value);
-  if (Number.isNaN(t.getTime())) return null;
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-GB', {
-      timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
-    }).formatToParts(t).map((p) => [p.type, p.value])
-  );
-  return {
-    y: Number(parts.year), mo: Number(parts.month) - 1, d: Number(parts.day),
-    h: Number(parts.hour), mi: Number(parts.minute), s: Number(parts.second)
-  };
-};
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -154,84 +120,6 @@ const ALWAYS_KEYS = new Set([
   'photoUrl'
 ]);
 
-/** Excel has no time zones: a Date built from wall-clock parts as UTC shows exactly them. */
-const wallClock = (p, withTime) => new Date(Date.UTC(p.y, p.mo, p.d, withTime ? p.h : 0, withTime ? p.mi : 0, withTime ? p.s : 0));
-
-const toCellValue = (value, type) => {
-  if (isBlank(value)) return null;
-  switch (type) {
-    case TYPES.COORDINATE: {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : null;
-    }
-    case TYPES.DATE: {
-      const plain = typeof value === 'string' ? value.match(PLAIN_DATE_RE) : null;
-      if (plain) return new Date(Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])));
-      const p = lagosParts(value);
-      return p ? wallClock(p, false) : null;
-    }
-    case TYPES.DATETIME: {
-      const p = lagosParts(value);
-      return p ? wallClock(p, true) : null;
-    }
-    case TYPES.LINK: {
-      const url = String(value).trim();
-      return HTTP_URL_RE.test(url) ? { text: url, hyperlink: url } : url;
-    }
-    default:
-      return String(value);
-  }
-};
-
-const displayLength = (v) => {
-  if (v === null || v === undefined) return 0;
-  if (v instanceof Date) return 17;
-  if (typeof v === 'object' && v.text) return String(v.text).length;
-  return String(v).length;
-};
-
-/** Same look as the portal's fillWorkbook: frozen bold header, filters, formats. */
-const addSheet = (workbook, { name, columns, rows, autoFilter = true }) => {
-  const ws = workbook.addWorksheet(name.slice(0, 31), { views: [{ state: 'frozen', ySplit: 1 }] });
-
-  ws.columns = columns.map((c) => {
-    const longest = Math.max(
-      c.header.length,
-      ...rows.slice(0, 500).map((r) => displayLength(toCellValue(r[c.key], c.type)))
-    );
-    return {
-      header: c.header,
-      key: c.key,
-      width: c.width || Math.min(Math.max(longest + 2, 10), 60),
-      style: { numFmt: NUM_FMT[c.type] || NUM_FMT.text }
-    };
-  });
-
-  rows.forEach((r) => {
-    const values = {};
-    columns.forEach((c) => { values[c.key] = toCellValue(r[c.key], c.type); });
-    const row = ws.addRow(values);
-    columns.forEach((c) => {
-      if (c.type === TYPES.LINK && values[c.key] && typeof values[c.key] === 'object') {
-        row.getCell(c.key).font = { color: { argb: 'FF1D4ED8' }, underline: true };
-      }
-    });
-  });
-
-  const header = ws.getRow(1);
-  header.font = { bold: true };
-  header.alignment = { vertical: 'middle' };
-  header.eachCell((cell) => {
-    cell.numFmt = 'General';
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
-    cell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } } };
-  });
-
-  if (autoFilter && columns.length > 0) {
-    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
-  }
-};
-
 class CompletedInstallationsReportService {
   static fileName(discoCode, date = new Date()) {
     const slug = String(discoCode || 'all-discos').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -277,11 +165,10 @@ class CompletedInstallationsReportService {
     records.forEach((r) => { const d = r.disco || 'Not recorded'; byDisco[d] = (byDisco[d] || 0) + 1; });
     const withPicture = records.filter((r) => !isBlank(r.photoUrl)).length;
     const matchedMeters = sorted.filter((r) => meterIndex.has(serialOf(r))).length;
-    const generated = lagosParts(context.generatedAt || new Date());
 
     const summaryRows = [
       { item: 'Report', value: 'Completed installations' },
-      { item: 'Generated', value: `${generated.d}/${generated.mo + 1}/${generated.y}, ${pad(generated.h)}:${pad(generated.mi)}:${pad(generated.s)} (WAT)` },
+      { item: 'Generated', value: formatGeneratedAt(context.generatedAt) },
       { item: 'DisCo scope', value: context.discoName },
       { item: 'Filters', value: context.filters.length ? context.filters.join('; ') : 'None' },
       { item: 'Completed statuses included', value: 'Installed, Exported (imported jobs)' },
