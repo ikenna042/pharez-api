@@ -1,10 +1,9 @@
-const pool = require('../config/database');
 const Disco = require('../models/Disco');
 const ImportBatch = require('../models/ImportBatch');
-const ExportBatch = require('../models/ExportBatch');
 const InstallationRequest = require('../models/InstallationRequest');
+const Meter = require('../models/Meter');
 const DiscoImportService = require('../services/discoImportService');
-const InstallationExportService = require('../services/installationExportService');
+const CompletedInstallationsReportService = require('../services/completedInstallationsReportService');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { canAccessDisco, resolveAccessibleDisco, resolveListScope } = require('../utils/discoAccess');
 
@@ -81,10 +80,11 @@ const importMeterInventory = asyncHandler(async (req, res) => {
 });
 
 /**
- * The response sheet for the already-completed accounts an import repeated.
- * Opened as a plain link, so the token is the only credential (as with
- * /files/:token). Rebuilt from current data on every request; jobs reverted
- * since the import drop out.
+ * The "Completed installations" workbook (the portal's export layout) for the
+ * already-completed accounts an import repeated. Opened as a plain link, so
+ * the token is the only credential (as with /files/:token). Rebuilt from
+ * current data on every request; jobs reverted since the import drop out.
+ * Not a disco response sheet, so it isn't recorded in export_batches.
  */
 const downloadCompletedExport = asyncHandler(async (req, res) => {
   const batch = await ImportBatch.findByCompletedExportToken(req.params.token);
@@ -95,37 +95,27 @@ const downloadCompletedExport = asyncHandler(async (req, res) => {
     return res.status(410).json({ success: false, message: 'Download link expired' });
   }
 
-  const disco = await Disco.findById(batch.discoId);
-  const template = Disco.getExportTemplate(disco, 'installationResponse');
-  if (!template) {
-    return res.status(400).json({
-      success: false,
-      message: `Disco ${disco.code} has no installationResponse export template configured`
-    });
-  }
-
-  const statuses = ['INSTALLED', 'EXPORTED'];
-  const rows = await InstallationRequest.findForExport({ discoId: disco.id, statuses, ids: batch.requestIds });
-  if (rows.length === 0) {
+  const installations = await InstallationRequest.findManyByIds(batch.requestIds, {
+    statuses: ['INSTALLED', 'EXPORTED']
+  });
+  if (installations.length === 0) {
     return res.status(404).json({ success: false, message: 'No completed installations left to export' });
   }
 
-  const buffer = InstallationExportService.buildWorkbook(rows, template);
-  const fileName = InstallationExportService.buildFileName(template, disco.code);
+  const serials = installations.map((r) => r.meterNumber).filter(Boolean);
+  const meters = serials.length ? await Meter.findManyByNumbers(serials) : [];
+  const disco = await Disco.findById(batch.discoId);
+  const importBatch = await ImportBatch.findById(batch.id);
 
-  // Recorded like any other export; nothing is marked exported.
-  await ExportBatch.create(
-    {
-      discoId: disco.id,
-      discoCode: disco.code,
-      filters: { statuses, source: 'IMPORT_COMPLETED_DUPLICATES', importBatchId: batch.id },
-      rowCount: rows.length,
-      fileName,
-      markedExported: false,
-      generatedBy: batch.uploadedBy
-    },
-    pool
-  );
+  const buffer = await CompletedInstallationsReportService.buildWorkbook({
+    installations,
+    meters,
+    context: {
+      discoName: disco.name,
+      filters: [`Accounts in import ${importBatch.batchRef}${importBatch.fileName ? ` (${importBatch.fileName})` : ''} that were already completed`]
+    }
+  });
+  const fileName = CompletedInstallationsReportService.fileName(disco.code);
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);

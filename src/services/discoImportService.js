@@ -4,7 +4,7 @@ const Disco = require('../models/Disco');
 const ImportBatch = require('../models/ImportBatch');
 const InstallationRequest = require('../models/InstallationRequest');
 const Meter = require('../models/Meter');
-const InstallationExportService = require('./installationExportService');
+const CompletedInstallationsReportService = require('./completedInstallationsReportService');
 const { resolveApiBaseUrl } = require('../config/swaggerServers');
 const { resolveColumns, applyMapping, restoreIntegerText } = require('../utils/normalizers');
 
@@ -127,9 +127,9 @@ class DiscoImportService {
 
   /**
    * Skipped rows are accounts that already exist. Those already installed (or
-   * exported) get a response sheet in the disco's normal format, offered as a
-   * link: GET /imports/completed-exports/:token rebuilds it on request, since
-   * the file isn't stored. Statuses aren't touched. Returns null when no
+   * exported) get the portal's "Completed installations" workbook, offered as
+   * a link: GET /imports/completed-exports/:token rebuilds it on request,
+   * since the file isn't stored. Statuses aren't touched. Returns null when no
    * skipped account is completed.
    */
   static async offerCompletedExport(batchId, disco, skipped, client) {
@@ -145,17 +145,11 @@ class DiscoImportService {
     );
     if (found.rows.length === 0) return null;
 
-    const rowCount = found.rows.length;
-    const template = Disco.getExportTemplate(disco, 'installationResponse');
-    if (!template) {
-      return { rowCount, error: `Disco ${disco.code} has no installationResponse export template configured` };
-    }
-
     const { token, expiresAt } = await ImportBatch.setCompletedExport(batchId, found.rows.map((r) => r.id), client);
 
     return {
-      rowCount,
-      fileName: InstallationExportService.buildFileName(template, disco.code),
+      rowCount: found.rows.length,
+      fileName: CompletedInstallationsReportService.fileName(disco.code),
       downloadUrl: `${resolveApiBaseUrl()}/imports/completed-exports/${token}`,
       expiresAt
     };

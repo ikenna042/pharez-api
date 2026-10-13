@@ -224,6 +224,30 @@ class InstallationRequest {
     return result.rows.length === 0 ? null : this.format(result.rows[0]);
   }
 
+  /** Several requests with the same names findById resolves, in id order. */
+  static async findManyByIds(ids, { statuses } = {}) {
+    const params = [ids];
+    let statusFilter = '';
+    if (statuses) { params.push(statuses); statusFilter = ` AND r.status = ANY($2::varchar[])`; }
+
+    const result = await pool.query(
+      `SELECT r.*, d.code AS disco_code, d.name AS disco_name,
+              u.first_name || ' ' || u.last_name AS installer_name,
+              a.first_name || ' ' || a.last_name AS assignee_name,
+              c.first_name || ' ' || c.last_name AS completed_by_name
+       FROM installation_request r
+       JOIN discos d ON d.id = r.disco_id
+       LEFT JOIN users u ON u.id = r.installed_by
+       LEFT JOIN users a ON a.id = r.assigned_to
+       LEFT JOIN users c ON c.id = r.completed_by
+       WHERE r.id = ANY($1::int[])${statusFilter}
+       ORDER BY r.id`,
+      params
+    );
+
+    return result.rows.map((row) => this.format(row));
+  }
+
   static async findByAccountNumber(discoId, accountNumber) {
     const result = await pool.query(
       'SELECT * FROM installation_request WHERE disco_id = $1 AND account_number = $2',
@@ -761,13 +785,12 @@ class InstallationRequest {
   }
 
   /** Rows for a disco's response sheet, with the installer's name resolved. */
-  static async findForExport({ discoId, statuses = ['INSTALLED'], from, to, ids }) {
+  static async findForExport({ discoId, statuses = ['INSTALLED'], from, to }) {
     const params = [discoId, statuses];
     let dateFilter = '';
 
     if (from) { params.push(from); dateFilter += ` AND r.reported_at >= $${params.length}`; }
     if (to) { params.push(to); dateFilter += ` AND r.reported_at < $${params.length}`; }
-    if (ids) { params.push(ids); dateFilter += ` AND r.id = ANY($${params.length}::int[])`; }
 
     const result = await pool.query(
       `SELECT r.*, d.code AS disco_code,

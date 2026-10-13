@@ -4,8 +4,12 @@ const Meter = require('../models/Meter');
 const InstallationRequest = require('../models/InstallationRequest');
 const ExportBatch = require('../models/ExportBatch');
 const InstallationExportService = require('../services/installationExportService');
+const InstallationCustomExportService = require('../services/installationCustomExportService');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { canAccessDisco, resolveAccessibleDisco, resolveListScope } = require('../utils/discoAccess');
+const {
+  canAccessDisco, resolveAccessibleDisco, resolveListScope, allowedDiscoIds
+} = require('../utils/discoAccess');
+const { LIMITS: CUSTOM_EXPORT_LIMITS } = require('../config/installationExportFields');
 
 const notFound = (res) => res.status(404).json({ success: false, message: 'Installation request not found' });
 
@@ -183,6 +187,69 @@ const updateInstallationSeal = asyncHandler(async (req, res) => {
 const listSealDuplicates = asyncHandler(async (req, res) => {
   const groups = await InstallationRequest.findSealDuplicates();
   res.json({ success: true, data: groups });
+});
+
+/* ------------------------- custom export ------------------------- */
+
+const getCustomExportFields = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: InstallationCustomExportService.describe(req.user) });
+});
+
+// Choose columns, filters and an optional grouping; get Excel or CSV.
+const customExport = asyncHandler(async (req, res) => {
+  const { errors, spec } = InstallationCustomExportService.validate(req.body, req.user);
+  if (errors) {
+    return res.status(400).json({ success: false, message: `Invalid export request: ${errors.join('; ')}`, errors });
+  }
+
+  // Every requested disco must be one the caller can access (404/403 sent by
+  // resolveAccessibleDisco); none requested means all of theirs.
+  let discoIds = allowedDiscoIds(req.user);
+  let scopeLabel = discoIds === null ? 'All discos' : 'All discos you can access';
+  const codes = [...new Set(req.body.discoCodes || [])];
+  if (codes.length > 0) {
+    const discos = [];
+    for (const code of codes) {
+      const disco = await resolveAccessibleDisco(req, res, code);
+      if (!disco) return undefined;
+      discos.push(disco);
+    }
+    discoIds = discos.map((d) => d.id);
+    scopeLabel = discos.map((d) => d.code).join(', ');
+  }
+
+  const rowCount = await InstallationCustomExportService.count(spec, discoIds);
+  if (rowCount === 0) {
+    return res.status(404).json({ success: false, message: 'No installations match these filters' });
+  }
+  const limit = CUSTOM_EXPORT_LIMITS[spec.format];
+  if (rowCount > limit) {
+    return res.status(400).json({
+      success: false,
+      message: `This export has ${rowCount.toLocaleString()} rows; ${spec.format.toUpperCase()} allows at most `
+        + `${limit.toLocaleString()}. Narrow the filters${spec.format === 'xlsx' ? ' or choose CSV' : ''}.`
+    });
+  }
+
+  console.info(
+    `[custom-export] ${req.user.id} (${req.user.role}) ${spec.format} ${rowCount} rows; scope: ${scopeLabel}; `
+    + `filters: ${InstallationCustomExportService.describeFilters(spec).join('; ') || 'none'}`
+  );
+
+  const fileName = InstallationCustomExportService.fileName(spec);
+  if (spec.format === 'csv') {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    return InstallationCustomExportService.streamCsv(spec, discoIds, res);
+  }
+
+  const buffer = await InstallationCustomExportService.buildWorkbook(spec, discoIds, {
+    scopeLabel,
+    generatedBy: `${[req.user.firstName, req.user.lastName].filter(Boolean).join(' ')} (${req.user.role})`
+  });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  return res.send(buffer);
 });
 
 /* --------------------------- installer --------------------------- */
@@ -396,6 +463,8 @@ module.exports = {
   revertInstallation,
   updateInstallationSeal,
   listSealDuplicates,
+  getCustomExportFields,
+  customExport,
   getMyJobs,
   getMyMeters,
   startInstallation,

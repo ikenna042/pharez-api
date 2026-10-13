@@ -34,8 +34,6 @@ const verifyPhoneOTP = asyncHandler(async (req, res) => {
   const { otp } = req.body;
   const phone = req.user.phone;
 
-  console.log('Verifying OTP:', otp, 'for Phone:', phone); // Debugging line
-
   const result = await VerificationService.verifyPhone(phone, otp);
   console.log('Verify Phone Result:', result); // Debugging line
 

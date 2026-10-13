@@ -37,7 +37,7 @@ class JedService {
       };
     }
     console.log('Amount to be charged:', amount);
-    console.log('Generating Remita hash with:', { merchantId, serviceTypeId, orderId, amount, apiKey });
+    console.log('Generating Remita hash with:', { merchantId, serviceTypeId, orderId, amount });
     
     const apiHash = this.generateRemitaHash(merchantId, serviceTypeId, orderId, amount, apiKey);
 
