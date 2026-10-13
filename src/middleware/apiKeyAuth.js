@@ -22,7 +22,7 @@ const apiKeyAuth = async (req, res, next) => {
 
     if (!validKey) {
       
-      console.log('Invalid API Key provided:', apiKey);
+      console.log('Invalid API Key provided:', `${String(apiKey).slice(0, 4)}…(${String(apiKey).length} chars)`);
 
       // Log failed attempt
       return res.status(401).json({
