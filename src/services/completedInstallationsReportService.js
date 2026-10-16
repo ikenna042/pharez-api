@@ -120,6 +120,63 @@ const ALWAYS_KEYS = new Set([
   'photoUrl'
 ]);
 
+// Per-installer meter counts for the Summary sheet. Kept identical to the
+// portal's installedMetersByInstaller (m-web completedInstallationsReport.js).
+const NOT_RECORDED = 'Not recorded';
+const PHASE_LABELS = { 'SINGLE PHASE': 'Single Phase', 'THREE PHASE': 'Three Phase' };
+const PHASE_ORDER = ['Single Phase', 'Three Phase'];
+
+/** The fitted meter's phase (inventory), else the job's meter type, as a label. */
+const meterTypeLabel = (phase) => {
+  if (isBlank(phase)) return NOT_RECORDED;
+  const key = normalizePhase(phase);
+  return PHASE_LABELS[key] || key;
+};
+
+const typeOrder = (a, b) => {
+  const rank = (t) => (PHASE_ORDER.includes(t) ? PHASE_ORDER.indexOf(t) : t === NOT_RECORDED ? 99 : 2);
+  return rank(a) - rank(b) || a.localeCompare(b);
+};
+
+/** "Single Phase: 20 · Three Phase: 3 · Total: 23" (non-zero types only). */
+const formatTypeCounts = ({ byType, total }) =>
+  [...Object.keys(byType).sort(typeOrder).map((t) => `${t}: ${byType[t]}`), `Total: ${total}`].join(' · ');
+
+/**
+ * [{ installer, byType: { label: n }, total }] for the given rows, busiest
+ * installer first, "Not recorded" last. `installerOf` and `phaseOf` read one
+ * row each.
+ */
+const installedMetersByInstaller = (rows, { installerOf, phaseOf }) => {
+  const byInstaller = new Map();
+  rows.forEach((row) => {
+    const installer = installerOf(row) || NOT_RECORDED;
+    const type = meterTypeLabel(phaseOf(row));
+    const entry = byInstaller.get(installer) || { installer, byType: {}, total: 0 };
+    entry.byType[type] = (entry.byType[type] || 0) + 1;
+    entry.total += 1;
+    byInstaller.set(installer, entry);
+  });
+  return [...byInstaller.values()].sort((a, b) =>
+    (a.installer === NOT_RECORDED) - (b.installer === NOT_RECORDED)
+    || b.total - a.total
+    || a.installer.localeCompare(b.installer));
+};
+
+/** Summary rows: a heading, one row per installer, then all installers. */
+const installerSummaryRows = (counts) => {
+  const all = { byType: {}, total: 0 };
+  counts.forEach((c) => {
+    Object.entries(c.byType).forEach(([t, n]) => { all.byType[t] = (all.byType[t] || 0) + n; });
+    all.total += c.total;
+  });
+  return [
+    { item: 'Installed meters by installer', value: "Meter type is the phase of the meter fitted (inventory), else the job's meter type" },
+    ...counts.map((c) => ({ item: `  ${c.installer}`, value: formatTypeCounts(c) })),
+    { item: '  All installers', value: formatTypeCounts(all) }
+  ];
+};
+
 class CompletedInstallationsReportService {
   static fileName(discoCode, date = new Date()) {
     const slug = String(discoCode || 'all-discos').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -177,7 +234,11 @@ class CompletedInstallationsReportService {
       ...Object.entries(byDisco).sort().map(([k, v]) => ({ item: `  DisCo ${k}`, value: String(v) })),
       { item: 'Installation pictures', value: `${withPicture} of ${records.length} have a picture link` },
       { item: 'Meter details matched', value: `${matchedMeters} of ${records.length}` },
-      { item: 'Data completeness', value: 'Every completed installation in the selected scope is included.' }
+      { item: 'Data completeness', value: 'Every completed installation in the selected scope is included.' },
+      ...installerSummaryRows(installedMetersByInstaller(sorted, {
+        installerOf: (r) => pick(r.installerName, r.assigneeName),
+        phaseOf: (r) => pick(meterIndex.get(serialOf(r))?.phaseType, r.meterType)
+      }))
     ];
 
     const workbook = new ExcelJS.Workbook();
@@ -197,3 +258,5 @@ class CompletedInstallationsReportService {
 }
 
 module.exports = CompletedInstallationsReportService;
+module.exports.installedMetersByInstaller = installedMetersByInstaller;
+module.exports.formatTypeCounts = formatTypeCounts;
