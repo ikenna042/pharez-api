@@ -87,4 +87,39 @@ describe('CompletedInstallationsReportService', () => {
     expect(CompletedInstallationsReportService.fileName('ABA_POWER', new Date('2026-10-12T10:00:00Z')))
       .toBe('completed-installations-aba-power-2026-10-12.xlsx');
   });
+
+  it('counts installed meters per installer by the fitted meter\'s phase in the Summary sheet', async () => {
+    const buffer = await build([
+      job({ id: 1, installerName: 'Ada Installer', meterNumber: 'M1' }),
+      job({ id: 2, installerName: 'Ada Installer', meterNumber: 'M2' }),
+      // Not in inventory: falls back to the job's meter type.
+      job({ id: 3, installerName: 'Ada Installer', meterNumber: 'M9', meterType: 'THREE PHASE' }),
+      job({ id: 4, installerName: null, assigneeName: 'Bo Assignee', meterNumber: 'M3' }),
+      job({ id: 5, installerName: null, meterNumber: 'M4', meterType: null })
+    ], [
+      { meterNumber: 'M1', phaseType: 'SINGLE PHASE' },
+      { meterNumber: 'M2', phaseType: 'THREE PHASE' },
+      { meterNumber: 'M3', phaseType: 'SINGLE PHASE' },
+      { meterNumber: 'M4', phaseType: null }
+    ]);
+    const { wb } = await read(buffer);
+    const ws = wb.getWorksheet('Summary');
+    const rows = [];
+    for (let r = 2; r <= ws.rowCount; r += 1) rows.push(ws.getRow(r).values.slice(1));
+    const start = rows.findIndex(([item]) => item === 'Installed meters by installer');
+    expect(rows.slice(start + 1)).toEqual([
+      ['  Ada Installer', 'Single Phase: 1 · Three Phase: 2 · Total: 3'],
+      ['  Bo Assignee', 'Single Phase: 1 · Total: 1'],
+      ['  Not recorded', 'Not recorded: 1 · Total: 1'],
+      ['  All installers', 'Single Phase: 2 · Three Phase: 2 · Not recorded: 1 · Total: 5']
+    ]);
+  });
+
+  it('labels blank and unusual meter types and orders them after the two phases', () => {
+    const { installedMetersByInstaller, formatTypeCounts } = CompletedInstallationsReportService;
+    const counts = installedMetersByInstaller([{ p: '3-PH' }, { p: null }, { p: 'POLY' }, { p: 'single phase' }], {
+      installerOf: () => 'X', phaseOf: (r) => r.p
+    });
+    expect(formatTypeCounts(counts[0])).toBe('Single Phase: 1 · Three Phase: 1 · POLY: 1 · Not recorded: 1 · Total: 4');
+  });
 });
