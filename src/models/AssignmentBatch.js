@@ -55,7 +55,12 @@ class AssignmentBatch {
           rejected.push({ meterNumber: number, reason: 'Meter not found' });
         } else if (meter.discoId !== disco.id) {
           // Meter stock belongs to a disco; it can't be dispatched for another one.
-          rejected.push({ meterNumber: number, reason: `Meter belongs to another disco's stock, not ${disco.code}` });
+          rejected.push({
+            meterNumber: number,
+            reason: meter.discoCode
+              ? `Meter is ${meter.discoCode} stock, not ${disco.code}. Dispatch it under ${meter.discoCode}.`
+              : `Meter belongs to another disco's stock, not ${disco.code}`
+          });
         } else if (meter.assignmentStatus === 'ASSIGNED') {
           rejected.push({
             meterNumber: number,
