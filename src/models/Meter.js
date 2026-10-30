@@ -1,10 +1,14 @@
 const pool = require('../config/database');
 
+// Every meter read carries its disco's code, so callers (and the portal) can
+// tell which disco's stock a meter is without a second lookup.
+const METER_COLUMNS = 'meters.*, (SELECT code FROM discos WHERE discos.id = meters.disco_id) AS disco_code';
+
 class Meter {
   
   static async findByMeterNumber(meterNumber) {
     const query = `
-      SELECT * FROM meters
+      SELECT ${METER_COLUMNS} FROM meters
       WHERE meter_number = $1
     `;
 
@@ -19,7 +23,7 @@ class Meter {
 
   static async findById(id) {
     const query = `
-      SELECT * FROM meters
+      SELECT ${METER_COLUMNS} FROM meters
       WHERE id = $1
     `;
 
@@ -36,7 +40,7 @@ class Meter {
     const { page = 1, limit = 10, status, phaseType, search, assignedTo, discoIds = null } = options;
     const offset = (page - 1) * limit;
 
-    let query = 'SELECT * FROM meters WHERE 1=1';
+    let query = `SELECT ${METER_COLUMNS} FROM meters WHERE 1=1`;
     const queryParams = [];
     let paramCount = 0;
 
@@ -420,7 +424,7 @@ class Meter {
   /** Look up many meters by serial. `forUpdate` locks them for the caller's transaction. */
   static async findManyByNumbers(meterNumbers, { client = pool, forUpdate = false } = {}) {
     const result = await client.query(
-      `SELECT * FROM meters WHERE meter_number = ANY($1::varchar[])${forUpdate ? ' FOR UPDATE' : ''}`,
+      `SELECT ${METER_COLUMNS} FROM meters WHERE meter_number = ANY($1::varchar[])${forUpdate ? ' FOR UPDATE' : ''}`,
       [meterNumbers]
     );
 
@@ -442,7 +446,7 @@ class Meter {
 
     const offset = (page - 1) * limit;
     const result = await pool.query(
-      `SELECT * FROM meters ${where} ORDER BY meter_number ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      `SELECT ${METER_COLUMNS} FROM meters ${where} ORDER BY meter_number ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, limit, offset]
     );
 
@@ -501,7 +505,7 @@ class Meter {
 
   static async getAvailableMeters(phaseType) {
     const query = `
-      SELECT * FROM meters
+      SELECT ${METER_COLUMNS} FROM meters
       WHERE status = 'AVAILABLE' AND phase_type = $1
       ORDER BY created_at ASC
     `;
@@ -550,6 +554,7 @@ class Meter {
     return {
       id: dbRow.id,
       discoId: dbRow.disco_id,
+      discoCode: dbRow.disco_code ?? null,
       meterNumber: dbRow.meter_number,
       simNumber: dbRow.sim_number,
       manufacturedDate: dbRow.manufactured_date,
