@@ -182,6 +182,12 @@ router.get('/export', authenticate, authorize(['SUPERADMIN', 'ADMIN', 'SUPERVISO
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: query
+ *         name: assignmentStatus
+ *         description: Only meters in this dispatch state, e.g. UNASSIGNED for meters on the shelf.
+ *         schema:
+ *           type: string
+ *           enum: [UNASSIGNED, ASSIGNED, USED, RETURNED, LOST]
  *     responses:
  *       200:
  *         description: List of meters

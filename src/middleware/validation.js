@@ -546,6 +546,33 @@ const validationSchemas = {
     exportBatchId: Joi.number().integer().min(1).required()
   }),
 
+  meterHoldersQuery: Joi.object({
+    discoCode: Joi.string().max(50).optional().uppercase().trim(),
+    installerId: Joi.string().guid({ version: ['uuidv4'] }).optional()
+  }),
+
+  // status: one or more dispatch states, comma-separated; ASSIGNED by default.
+  assignedMetersQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    format: Joi.string().valid('xlsx', 'csv').optional(),
+    status: Joi.string().pattern(/^(ASSIGNED|USED|RETURNED|LOST)(,(ASSIGNED|USED|RETURNED|LOST))*$/).optional()
+      .messages({ 'string.pattern.base': 'status must be one or more of ASSIGNED, USED, RETURNED, LOST, comma-separated' }),
+    discoCode: Joi.string().max(50).optional().uppercase().trim(),
+    installerId: Joi.string().guid({ version: ['uuidv4'] }).optional(),
+    phaseType: Joi.string().valid('SINGLE PHASE', 'THREE PHASE').optional(),
+    from: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional().messages({ 'string.pattern.base': 'from must be YYYY-MM-DD' }),
+    to: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional().messages({ 'string.pattern.base': 'to must be YYYY-MM-DD' }),
+    q: Joi.string().max(100).optional().trim()
+  }),
+
+  // meterNumbers may instead arrive as an uploaded file; the controller checks one is present.
+  assignedMetersSearch: Joi.object({
+    meterNumbers: Joi.array().items(Joi.string().max(100).trim().allow('')).max(5000).optional(),
+    discoCode: Joi.string().max(50).optional().uppercase().trim(),
+    format: Joi.string().valid('xlsx', 'csv').optional()
+  }),
+
   getAssignmentBatchesQuery: Joi.object({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(20),

@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const compression = require('compression');
 const routes = require('./routes');
 const { errorHandler } = require('./middleware/errorHandler');
 const { specs, swaggerUi } = require('./config/swagger');
@@ -13,6 +14,10 @@ const app = express();
 // Security middleware
 app.use(helmet());
 app.use(cors());
+
+// Large JSON lists shrink several times over. Excel files are already zipped,
+// and the default filter skips them.
+app.use(compression());
 
 // Logging
 app.use(morgan('combined'));

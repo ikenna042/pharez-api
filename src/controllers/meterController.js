@@ -81,7 +81,7 @@ const exportMeters = asyncHandler(async (req, res) => {
 });
 
 const getMeters = asyncHandler(async (req, res) => {
-  const { page, limit, status, phaseType, discoCode, assignedTo } = req.query;
+  const { page, limit, status, phaseType, discoCode, assignedTo, assignmentStatus } = req.query;
 
   // Checked here because assigned_to is a uuid column: a malformed id would
   // otherwise surface as a Postgres cast error and a 500.
@@ -92,7 +92,7 @@ const getMeters = asyncHandler(async (req, res) => {
   const scope = await resolveListScope(req, res, discoCode);
   if (!scope) return;
 
-  const result = await Meter.findAll({ page, limit, status, phaseType, assignedTo, discoIds: scope.discoIds });
+  const result = await Meter.findAll({ page, limit, status, phaseType, assignedTo, assignmentStatus, discoIds: scope.discoIds });
 
   res.json({
     success: true,
