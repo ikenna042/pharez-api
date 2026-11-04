@@ -37,7 +37,7 @@ class Meter {
   }
 
   static async findAll(options = {}) {
-    const { page = 1, limit = 10, status, phaseType, search, assignedTo, discoIds = null } = options;
+    const { page = 1, limit = 10, status, phaseType, search, assignedTo, assignmentStatus, discoIds = null } = options;
     const offset = (page - 1) * limit;
 
     let query = `SELECT ${METER_COLUMNS} FROM meters WHERE 1=1`;
@@ -68,6 +68,12 @@ class Meter {
       paramCount++;
       query += ` AND assigned_to = $${paramCount} AND assignment_status = 'ASSIGNED'`;
       queryParams.push(assignedTo);
+    }
+
+    if (assignmentStatus) {
+      paramCount++;
+      query += ` AND assignment_status = $${paramCount}`;
+      queryParams.push(assignmentStatus);
     }
 
     // null = every disco; [] = none (a scoped user with no discos).
@@ -109,6 +115,12 @@ class Meter {
       countParamCount++;
       countQuery += ` AND assigned_to = $${countParamCount} AND assignment_status = 'ASSIGNED'`;
       countParams.push(assignedTo);
+    }
+
+    if (assignmentStatus) {
+      countParamCount++;
+      countQuery += ` AND assignment_status = $${countParamCount}`;
+      countParams.push(assignmentStatus);
     }
 
     if (discoIds) {

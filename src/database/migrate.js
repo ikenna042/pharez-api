@@ -561,6 +561,7 @@ const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_ir_revenue ON installation_request(disco_id, status, reported_at);
   CREATE INDEX IF NOT EXISTS idx_meters_meter_number ON meters(meter_number);
   CREATE INDEX IF NOT EXISTS idx_meters_status ON meters(status);
+  CREATE INDEX IF NOT EXISTS idx_meters_disco_status_created ON meters(disco_id, status, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_api_keys_api_key ON api_keys(api_key);
   CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
   CREATE INDEX IF NOT EXISTS idx_api_key_logs_api_key_id ON api_key_logs(api_key_id);
@@ -596,6 +597,7 @@ const createIndexes = `
   CREATE INDEX IF NOT EXISTS idx_meter_assignments_batch ON meter_assignments(assignment_batch_id);
   CREATE INDEX IF NOT EXISTS idx_meter_assignments_installer ON meter_assignments(installer_id);
   CREATE INDEX IF NOT EXISTS idx_meter_assignments_status ON meter_assignments(status);
+  CREATE INDEX IF NOT EXISTS idx_meter_assignments_number ON meter_assignments(meter_number);
 
   CREATE INDEX IF NOT EXISTS idx_import_batches_disco ON import_batches(disco_id);
   CREATE INDEX IF NOT EXISTS idx_import_batches_type ON import_batches(import_type);
